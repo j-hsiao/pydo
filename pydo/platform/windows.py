@@ -1,14 +1,13 @@
 import ctypes
 import time
-from . import util
-from . import ydotool
+from pydo import bases
 
-MSEC = 1.0/1000.0
+MSEC = 1.0 / 1000.0
 
 class _LPoint(ctypes.Structure):
     _fields_ = [('x', ctypes.c_long), ('y', ctypes.c_long)]
 
-class WinMouse(util.Mouse):
+class WinMouse(bases.Mouse):
     _WIN_MOVE = 0x0001
     _WIN_LEFTDOWN = 0x0002
     _WIN_LEFTUP = 0x0004
@@ -28,18 +27,18 @@ class WinMouse(util.Mouse):
 
 
 
-class KeyboardWin(util.Keyboard):
+class WinKeyboard(bases.Keyboard):
     _rawkeys = {
-        'zero': 0x30, #	0 key
-        'one': 0x31, #	1 key
-        'two': 0x32, #	2 key
-        'three': 0x33, #	3 key
-        'four': 0x34, #	4 key
-        'five': 0x35, #	5 key
-        'six': 0x36, #	6 key
-        'seven': 0x37, #	7 key
-        'eight': 0x38, #	8 key
-        'nine': 0x39, #	9 key
+        '_0': 0x30, #	0 key
+        '_1': 0x31, #	1 key
+        '_2': 0x32, #	2 key
+        '_3': 0x33, #	3 key
+        '_4': 0x34, #	4 key
+        '_5': 0x35, #	5 key
+        '_6': 0x36, #	6 key
+        '_7': 0x37, #	7 key
+        '_8': 0x38, #	8 key
+        '_9': 0x39, #	9 key
         'a': 0x41, #	A key
         'b': 0x42, #	B key
         'c': 0x43, #	C key
@@ -261,13 +260,13 @@ class KeyboardWin(util.Keyboard):
 
 
 
-class ydowin(ydotool.ydotool):
+class ydo(bases.ydo):
     m = WinMouse
-    k = KeyboardWin()
+    k = WinKeyboard()
     # https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
 
     def __init__(self, *args, **kwargs):
-        """Create ydotool instance."""
+        """Create  instance."""
         # args to allow same interface, but no actual state so all static.
         pass
 
@@ -275,7 +274,7 @@ class ydowin(ydotool.ydotool):
     def lockstate(key='Caps_Lock'):
         """State of caps, scroll, or numlock."""
         if isinstance(key, str):
-            key = ydowin.k[key]
+            key = ydo.k[key]
         result = ctypes.windll.user32.GetKeyState(key)
         # NOTE: result < 0 implies key is currently pressed down
         # but only interested in the lock state for now...
@@ -341,7 +340,7 @@ class ydowin(ydotool.ydotool):
                 codes.append((WinMouse._WIN_XUP, 0, 0, key-2, 0))
         else:
             raise ValueError(
-                f'Mouse key not supported: {("FORWARD", "BACK", "TASK")[key-5]}')
+                'Mouse key not supported: {}'.format(("FORWARD", "BACK", "TASK")[key-5]))
 
         for idx in range(len(codes)):
             if idx:
@@ -356,11 +355,12 @@ class ydowin(ydotool.ydotool):
 
     @staticmethod
     def move(dx, dy, absolute=True):
-        """Move the cursor (Inexact).
+        """Move the cursor.
 
         dx, dy: int, the amount to move.
         absolute: bool, If absolute, then dx, dy are screen pixel coordinates.
         """
+        # Absolute seems to be correct regardless of pointer acceleration.
         ctypes.windll.user32.mouse_event(
             WinMouse._WIN_MOVE | (int(absolute) * WinMouse._WIN_ABSOLUTE), dx, dy, 0, 0)
 
@@ -380,7 +380,7 @@ class ydowin(ydotool.ydotool):
         #     keyup = 2: key up instead of down
         # ctypes.windll.user32.keybd_event()
         if isinstance(key, str):
-            key = ydowin.k[key]
+            key = ydo.k[key]
         if down:
             ctypes.windll.user32.keybd_event(key, 0, 0, 0)
             if up:

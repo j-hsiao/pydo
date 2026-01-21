@@ -23,8 +23,6 @@ import traceback
 import uuid
 import platform
 
-threading.Thread()
-
 def eprint(*args, **kwargs):
     kwargs.setdefault('file', sys.stderr)
     print(*args, **kwargs)
@@ -44,36 +42,32 @@ class ToStderr(object):
     def flush(self):
         pass
 
-def oswriteall(fd, text):
-    if isinstance(text, str):
-        text = text.encode('utf-8')
-    view = memoryview(text)
-    total = 0
-    target = len(text)
-    while total < target:
-        total += os.write(fd, view[total:])
-
-
 def detect_deiconify_motion_type(r, nsamples=0, verbose=False):
     """Detect whether a <Motion> will be visible or not after deiconify.
 
+    On wayland, without a geometry change, there is often only 1
+    <Configure> which overlaps with <Windows>.  As a result, the
+    geometry change to tiny window before full screen is necessary to
+    distinguish.
+
     From observation:
-        1. X generally results in multiple <Configure> events.
-        2. Windows only has 1 <Configure> event.
-        3. WSL usually has 6 configure events for a new Toplevel with this sequence.
-        4. Using vncserver/vncviewer NO <Motion> event fires, BUT still multiple
-           <Configure>, but less than WSL
-    Return (Motion is expected?, number of configs before ready)
+        system  <Motion>    <Configures>    <Configures> on <Enter>
+        Windows no          1               1
+        wsl     yes         6               5 (sometimes 6)
+        X (vnc) no          4               4
+        wayland yes         TODO            TODO
+    Return tuple: (
+        Motion is expected?,
+        number of configs before ready,
+        number of configs before <Enter>)
+
+    If nsamples, then each item is a list instead.
+
+    A window is considered "ready" when the mouse position reads the
+    correct <x,y> coordinates and a mouse click would be registered
+    as an event.
     """
-    if nsamples:
-        counts = []
-        total = 0
-        for i in range(nsamples):
-            expectmotion, configcount = detect_deiconify_motion_type(r, 0, verbose)
-            total += expectmotion
-            counts.append(configcount)
-        return (total > nsamples//2, sum(counts) / float(nsamples), counts)
-    else:
+    if not nsamples:
         t = tk.Toplevel(r)
         # There generally seems to be a potential for double <Motion>
         # if mouse happens to be inside of t when it first deiconifies.
@@ -81,24 +75,34 @@ def detect_deiconify_motion_type(r, nsamples=0, verbose=False):
         # than some other position prbly...
         # It seems geometry +0+0 vs +5+5 results in an extra <Configure>
         # for X (so (vnc: 3->4) (wsl: 5->6) (arch wayland: (1-2) -> (2-3))
+        t.overrideredirect()
         t.geometry('1x1+5+5')
         t.withdraw()
-        vname = 'v'+uuid.uuid4().hex
-        r.call('set', vname, '0')
+        total = 'pydo_total_configs'
+        mid = 'pydo_preenter_configs'
+        r.call('set', total, 0)
+        r.call('set', mid, 0)
         if verbose:
-            t.bind('<Enter>', f'puts "enterred... %x %y %X %Y [expr ${vname}]"\nif {{${vname} == 4 || ${vname} == 1}} {{destroy {t}}}')
-            t.bind('<Configure>', f'set {vname} [expr ${vname} + 1]\nputs "configure [expr ${vname}]"')
-            t.bind('<Motion>', f'puts "motioned %x %y %X %Y [expr ${vname}]"\ndestroy {t}')
+            extraenter = f'puts "enterred... %x %y %X %Y [expr ${total}]"\n'
+            extraconfig = f'\nputs "configure [expr ${total}]"'
+            extramotion = f'puts "motioned %x %y %X %Y [expr ${total}]"\n'
         else:
-            t.bind('<Enter>', f'if {{${vname} == 4 || ${vname} == 1}} {{destroy {t}}}')
-            t.bind('<Configure>', f'set {vname} [expr ${vname} + 1]')
-            t.bind('<Motion>', f'destroy {t}')
+            extraenter = extraconfig = extramotion = ''
+        t.bind('<Enter>', f'{extraenter}set {mid} [expr ${total}]\nif {{${total} == 4 || ${total} == 1}} {{destroy {t}}}')
+        t.bind('<Configure>', f'set {total} [expr ${total} + 1]{extraconfig}')
+        t.bind('<Motion>', f'{extramotion}destroy {t}')
+
         t.attributes('-topmost', True, '-fullscreen', True)
         t.deiconify()
         t.wait_window()
-        config_count = int(r.eval(f'expr ${vname}'))
-        r.call('unset', vname)
-        return (int(config_count) != 1 and int(config_count) != 4), config_count
+        config_count = r.exprlong(f'${total}')
+        return (int(config_count) != 1 and int(config_count) != 4), config_count, r.exprlong(f'${mid}')
+    else:
+        ret = ([], [], [])
+        for i in range(nsamples):
+            for lst, val in zip(ret, detect_deiconify_motion_type(r, 0, verbose)):
+                lst.append(val)
+        return ret
 
 def forward(src, dst):
     """Forward data from src to dst."""
