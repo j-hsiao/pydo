@@ -132,21 +132,21 @@ class WinKeyboard(bases.Keyboard):
         'Down': 0x28, #	Down arrow key
         'Right': 0x27, #	Right arrow key
         'PrintScreen': 0x2C, #	Print screen key
-        'Numpad_0': 0x60, #	Numeric keypad 0 key
-        'Numpad_1': 0x61, #	Numeric keypad 1 key
-        'Numpad_2': 0x62, #	Numeric keypad 2 key
-        'Numpad_3': 0x63, #	Numeric keypad 3 key
-        'Numpad_4': 0x64, #	Numeric keypad 4 key
-        'Numpad_5': 0x65, #	Numeric keypad 5 key
-        'Numpad_6': 0x66, #	Numeric keypad 6 key
-        'Numpad_7': 0x67, #	Numeric keypad 7 key
-        'Numpad_8': 0x68, #	Numeric keypad 8 key
-        'Numpad_9': 0x69, #	Numeric keypad 9 key
-        'Numpad_asterisk': 0x6A, #	Multiply key
-        'Numpad_plus': 0x6B, #	Add key
-        'Numpad_minus': 0x6D, #	Subtract key
-        'Numpad_period': 0x6E, #	Decimal key
-        'Numpad_slash': 0x6F, #	Divide key
+        'kp_0': 0x60, #	Numeric keypad 0 key
+        'kp_1': 0x61, #	Numeric keypad 1 key
+        'kp_2': 0x62, #	Numeric keypad 2 key
+        'kp_3': 0x63, #	Numeric keypad 3 key
+        'kp_4': 0x64, #	Numeric keypad 4 key
+        'kp_5': 0x65, #	Numeric keypad 5 key
+        'kp_6': 0x66, #	Numeric keypad 6 key
+        'kp_7': 0x67, #	Numeric keypad 7 key
+        'kp_8': 0x68, #	Numeric keypad 8 key
+        'kp_9': 0x69, #	Numeric keypad 9 key
+        'kp_asterisk': 0x6A, #	Multiply key
+        'kp_plus': 0x6B, #	Add key
+        'kp_minus': 0x6D, #	Subtract key
+        'kp_period': 0x6E, #	Decimal key
+        'kp_slash': 0x6F, #	Divide key
 
         # 'VK_SEPARATOR': 0x6C, #	Separator key
         # 'VK_LBUTTON': 0x01, #	Left mouse button
