@@ -4,10 +4,6 @@ import io
 import time
 import traceback
 
-def eprint(*args, **kwargs):
-    kwargs.setdefault('file', sys.stderr)
-    print(*args, **kwargs)
-
 class Bash(object):
     """A Bash session."""
     def __init__(self, sudo=False, stdout=sp.DEVNULL, stderr=sp.DEVNULL, **kwargs):
@@ -55,10 +51,8 @@ class Bash(object):
                     break
                 time.sleep(1)
             else:
-                eprint('Bash not exiting, terminating and waiting...')
                 self.proc.terminate()
                 self.proc.wait()
-                eprint('Bash done.')
         finally:
             self.proc = None
 

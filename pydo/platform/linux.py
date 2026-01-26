@@ -23,8 +23,77 @@ import traceback
 import uuid
 
 from pydo import bases
+from pydo.util import bash
 
 MSEC = 1.0 / 1000.0
+
+DEFAULT_SOCK = f'/dev/shm/{os.environ["USER"]}_ydo.sock'
+
+def eprint(*args, **kwargs):
+    kwargs.setdefault('file', sys.stderr)
+    print(*args, **kwargs)
+
+class Ignore(object):
+    def write(self, data):
+        return len(data)
+    def flush(self):
+        pass
+
+class ToStderr(object):
+    def __init__(self):
+        self.decoder = codecs.getincrementaldecoder('utf-8')()
+    def write(self, data):
+        print(self.decoder.decode(data), end='', file=sys.stderr)
+        return len(data)
+    def flush(self):
+        pass
+
+def forward(src, dst):
+    """Forward data from src to dst."""
+    buf = bytearray(io.DEFAULT_BUFFER_SIZE)
+    view = memoryview(buf)
+    readinto = getattr(src, 'readinto1', src.readinto)
+    amt = readinto(buf)
+    while amt:
+        total = 0
+        while total < amt:
+            total += dst.write(view[total:amt])
+        amt = readinto(buf)
+    dst.flush()
+
+def readtil(f, target, bufsize=io.DEFAULT_BUFFER_SIZE, out=None):
+    """Read file until target is found.
+
+    f: the file to read from.
+    target: The target bytes to search for.
+    bufsize: The buffersize to use.
+    out: output if buffer is filled but target not found.
+
+    Return (index, buf, total)
+        index: the index where target is found.
+        buf: the buffer.
+        total: the total number of bytes read.
+    """
+    buf = bytearray(max(bufsize, len(target)))
+    view = memoryview(buf)
+    total = 0
+    readinto = getattr(f, 'readinto1', f.readinto)
+    amt = readinto(view)
+    minwin = len(target) - 1
+    while amt:
+        searchstart = max(0, total - minwin)
+        total += amt
+        idx = buf.find(target, searchstart, total)
+        if idx >= 0:
+            return idx, buf, total
+        elif total == len(buf):
+            if out is not None:
+                out.write(view[:-minwin])
+            view[:minwin] = view[-minwin:]
+            total = minwin
+        amt = readinto(view[total:])
+    return -1, buf, total
+
 
 class LinKeyboard(bases.Keyboard):
     # libinput names -> tk names
@@ -321,30 +390,198 @@ class LinKeyboard(bases.Keyboard):
         return self._rawkeys[key]
 
 
+class ydotoold(object):
+    """Context manager for the ydotoold daemon."""
+
+    SCRIPT = textwrap.dedent('''
+        trap '' SIGINT
+        stdbuf -oL ydotoold -p {0} &
+        pid=$!
+        trap "kill $pid; rm "{1} EXIT
+        wait $pid
+        rm {0} && trap '' EXIT
+        ''')
+
+    def __init__(self, sock=None, verbose=False):
+        """Initialize ydotoold.
+
+        sock: The socket path for ydotoold.
+        """
+        if sock is None:
+            sock = DEFAULT_SOCK
+        self.verbose = verbose
+        self.path = sock
+        self.proc = None
+        self.thread = None
+        self.open()
+
+    def __str__(self):
+        """Return the ydotoold socket path."""
+        return self.path
+
+    def open(self):
+        """Open ydotoold process if needed."""
+        if self.proc is not None:
+            return
+        command = ['bash', '-c']
+        if os.environ['USER'] != 'root':
+            command.insert(0, 'sudo')
+        qpath = shlex.quote(self.path)
+        command.append(self.SCRIPT.format(qpath, shlex.quote(qpath)))
+        proc = sp.Popen(command, stdout=sp.PIPE, bufsize=0)
+        if self.verbose:
+            out = ToStderr()
+        else:
+            out = Ignore()
+        idx, buf, total = readtil(proc.stdout, b'READY', out=out)
+        if idx < 0:
+            raise RuntimeError('ydotoold exited without READY.')
+        out.write(memoryview(buf)[:total])
+        self.thread = threading.Thread(target=forward, args=[proc.stdout, out])
+        self.thread.start()
+        self.proc = proc
+        return
+
+    def close(self):
+        if self.proc is not None:
+            try:
+                self.proc.terminate()
+                self.thread.join()
+            except Exception:
+                eprint('ydotoold bash proc was ', self.proc.pid)
+                traceback.print_exc()
+            self.proc = None
+
+    def __enter__(self):
+        self.open()
+        return self
+    def __exit__(self, tp, exc, tb):
+        self.close()
+    def __del__(self):
+        self.close()
+
+class NoMouseAccel(object):
+    """Context manager to disable mouse acceleration."""
+
+    # TODO: how to turn off for other desktop environments?
+    # TODO: How to detect which desktop environment?
+    GET = ['gsettings', 'get', 'org.gnome.desktop.peripherals.mouse', 'accel-profile']
+    SET = ['gsettings', 'set', 'org.gnome.desktop.peripherals.mouse', 'accel-profile']
+    FLAT = "'flat'"
+    def __init__(self):
+        self.accel = []
+
+    def push(self):
+        self.accel.append(sp.check_output(self.GET).decode('utf-8'))
+        if self.accel[-1] != self.FLAT:
+            sp.check_output(self.SET + [self.FLAT])
+        return self
+    def pop(self):
+        try:
+            orig = self.accel.pop()
+            if orig != self.FLAT:
+                sp.check_output(self.SET + [orig])
+        except IndexError:
+            pass
+        return self
+    def close(self):
+        while self.accel:
+            self.pop()
+    def __enter__(self):
+        self.push()
+        return self
+    def __exit__(self, tp, exc, tb):
+        self.pop()
+    def __del__(self):
+        self.close()
+
 class ydo(bases.ydo):
     m = bases.Mouse
     k = LinKeyboard()
 
+    def __init__(self, sockpath=None, daemon=False, noaccel=False, verbose=False, **kwargs):
+        """Initialize ydo process."""
+        if sockpath is None:
+            sockpath = DEFAULT_SOCK
+        self.sockpath = sockpath
+        self.verbose = verbose
+        self.bash = None
+        self.pos = None
+        self.noaccel = None
+        self.daemon = None
+        self.open(daemon, noaccel, **kwargs)
 
+    def open(self, daemon, noaccel, **kwargs):
+        if self.bash is not None:
+            return
+        bash = bash.Bash(stdout=sp.PIPE, **kwargs)
+        try:
+            if daemon:
+                self.daemon = ydotoold(sock=self.sockpath, verbose=self.verbose)
+            try:
+                if noaccel:
+                    self.noaccel = NoMouseAccel()
+                    self.noaccel.push()
+                try:
+                    self.pos = pos(self)
+                    try:
+                        bash('export YDOTOOL_SOCKET={}'.format(shlex.quote(self.sockpath)))
+                        self.bash = bash
+                    finally:
+                        if self.bash is None:
+                            self.pos.close()
+                            self.pos = None
+                finally:
+                    if noaccel and self.bash is None:
+                        self.noaccel.close()
+                        self.noaccel = None
+            finally:
+                if daemon and self.bash is None:
+                    self.daemon.close()
+                    self.daemon = None
+        finally:
+            if self.bash is None:
+                bash.close()
 
-def eprint(*args, **kwargs):
-    kwargs.setdefault('file', sys.stderr)
-    print(*args, **kwargs)
+    def close(self):
+        if self.bash is None:
+            return
+        if self.noaccel is not None:
+            self.noaccel.close()
+            self.noaccel = None
+        if self.daemon is not None:
+            self.daemon.close()
+            self.daemon = None
+        self.pos.close()
+        self.bash.close()
+        self.bash = self.pos = None
 
-class Ignore(object):
-    def write(self, data):
-        return len(data)
-    def flush(self):
+    def lockstate(self, key='Caps_Lock'):
+        # probably delegate to positioning methods.
         pass
 
-class ToStderr(object):
-    def __init__(self):
-        self.decoder = codecs.getincrementaldecoder('utf-8')()
-    def write(self, data):
-        eprint(self.decoder.decode(data), end='')
-        return len(data)
-    def flush(self):
+    def screenshape(self):
+        # probably delegate to positioning methods.
         pass
+
+    def pos(self):
+        pass
+
+    def click(self, code, repeat=1, delay=25, **kwargs):
+        """Click the mouse."""
+        raise NotImplementedError
+
+    def move(self, dx, dy, absolute=True):
+        """Move the mouse (inexact)."""
+        raise NotImplementedError
+
+    def keypress(self, key, down=True, up=True, delay=0):
+        """Press/release a key."""
+        raise NotImplementedError
+
+
+
+
 
 def detect_deiconify_motion_type(r, nsamples=0, verbose=False):
     """Detect whether a <Motion> will be visible or not after deiconify.
@@ -407,19 +644,6 @@ def detect_deiconify_motion_type(r, nsamples=0, verbose=False):
             for lst, val in zip(ret, detect_deiconify_motion_type(r, 0, verbose)):
                 lst.append(val)
         return ret
-
-def forward(src, dst):
-    """Forward data from src to dst."""
-    buf = bytearray(io.DEFAULT_BUFFER_SIZE)
-    view = memoryview(buf)
-    readinto = getattr(src, 'readinto1', src.readinto)
-    amt = readinto(buf)
-    while amt:
-        total = 0
-        while total < amt:
-            total += dst.write(view[total:amt])
-        amt = readinto(buf)
-    dst.flush()
 
 class DragMotion(object):
     """Use tkinter to read current mouse position using drag+motion."""
@@ -603,146 +827,6 @@ class MousePosition(object):
     def __del__(self):
         self.close()
 
-class NoMouseAccel(object):
-    """Context manager to disable mouse acceleration."""
-
-    # TODO: how to turn off for other desktop environments?
-    # TODO: How to detect which desktop environment?
-    GET = ['gsettings', 'get', 'org.gnome.desktop.peripherals.mouse', 'accel-profile']
-    SET = ['gsettings', 'set', 'org.gnome.desktop.peripherals.mouse', 'accel-profile']
-    FLAT = "'flat'"
-    def __init__(self):
-        self.accel = []
-
-    def push(self):
-        self.accel.append(sp.check_output(self.GET).decode('utf-8'))
-        if self.accel[-1] != self.FLAT:
-            sp.check_output(self.SET + [self.FLAT])
-        return self
-    def pop(self):
-        try:
-            orig = self.accel.pop()
-            if orig != self.FLAT:
-                sp.check_output(self.SET + [orig])
-        except IndexError:
-            pass
-        return self
-    def close(self):
-        while self.accel:
-            self.pop()
-    def __enter__(self):
-        self.push()
-        return self
-    def __exit__(self, tp, exc, tb):
-        self.pop()
-    def __del__(self):
-        self.close()
-
-def readtil(f, target, bufsize=io.DEFAULT_BUFFER_SIZE, out=None):
-    """Read file until target is found.
-
-    f: the file to read from.
-    target: The target bytes to search for.
-    bufsize: The buffersize to use.
-    out: output if buffer is filled but target not found.
-
-    Return (index, buf, total)
-        index: the index where target is found.
-        buf: the buffer.
-        total: the total number of bytes read.
-    """
-    buf = bytearray(max(bufsize, len(target)))
-    view = memoryview(buf)
-    total = 0
-    readinto = getattr(f, 'readinto1', f.readinto)
-    amt = readinto(view)
-    minwin = len(target) - 1
-    while amt:
-        searchstart = max(0, total - minwin)
-        total += amt
-        idx = buf.find(target, searchstart, total)
-        if idx >= 0:
-            return idx, buf, total
-        elif total == len(buf):
-            if out is not None:
-                out.write(view[:-minwin])
-            view[:minwin] = view[-minwin:]
-            total = minwin
-        amt = readinto(view[total:])
-    return -1, buf, total
-
-
-class ydotoold(object):
-    """Context manager for the ydotoold daemon."""
-
-    SCRIPT = textwrap.dedent('''
-        trap '' SIGINT
-        stdbuf -oL ydotoold -p {0} &
-        pid=$!
-        trap "kill $pid; rm "{1} EXIT
-        wait $pid
-        trap '' EXIT
-        rm {0}
-        ''')
-
-    def __init__(self, sock=None, verbose=False):
-        """Initialize ydotoold.
-
-        sock: The socket path for ydotoold.
-        """
-        if sock is None:
-            sock = f'/dev/shm/{os.environ["USER"]}_ydo.sock'
-        self.verbose = verbose
-        self.path = sock
-        self.proc = None
-        self.thread = None
-        self.open()
-
-    def __str__(self):
-        """Return the ydotoold socket path."""
-        return self.path
-
-    def open(self):
-        """Open ydotoold process if needed."""
-        if self.proc is not None:
-            return
-        command = ['bash', '-c']
-        if os.environ['USER'] != 'root':
-            command.insert(0, 'sudo')
-        qpath = shlex.quote(self.path)
-        command.append(self.SCRIPT.format(qpath, shlex.quote(qpath)))
-        proc = sp.Popen(command, stdout=sp.PIPE, bufsize=0)
-        if self.verbose:
-            out = ToStderr()
-        else:
-            out = Ignore()
-        idx, buf, total = readtil(proc.stdout, b'READY', out=out)
-        if idx < 0:
-            raise RuntimeError('ydotoold exited without READY.')
-        out.write(memoryview(buf)[:total])
-        self.thread = threading.Thread(target=forward, args=[proc.stdout, out])
-        self.thread.start()
-        self.proc = proc
-        return
-
-    def close(self):
-        if self.proc is not None:
-            try:
-                self.proc.terminate()
-                self.thread.join()
-            except Exception:
-                eprint('ydotoold bash proc was ', self.proc.pid)
-                traceback.print_exc()
-            self.proc = None
-
-    def __enter__(self):
-        self.open()
-        return self
-    def __exit__(self, tp, exc, tb):
-        self.close()
-    def __del__(self):
-        self.close()
-
 
 class ydotool(object):
     """Ydotool commands through a bash process."""
@@ -755,14 +839,14 @@ class ydotool(object):
         else:
             self.noaccel = None
         if sockpath is None:
-            sockpath = f'/dev/shm/{os.environ["USER"]}_ydo.sock'
+            sockpath = DEFAULT_SOCK
         self.sockpath = sockpath
         self.open(stderr)
 
     def open(self, stderr=None):
         if self.bash is not None:
             return
-        self.bash = Bash(os.environ['USER'] != 'root', stdout=sp.PIPE, stderr=stderr)
+        self.bash = bash.Bash(os.environ['USER'] != 'root', stdout=sp.PIPE, stderr=stderr)
         if self.noaccel is not None:
             self.noaccel.push()
         self.pos = MousePosition()
