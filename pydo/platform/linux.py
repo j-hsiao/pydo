@@ -7,12 +7,12 @@ Notes on sudo:
 """
 from collections import defaultdict, deque
 import codecs
-import getpass
 import io
+import itertools
 import os
+import platform
 import select
 import shlex
-import itertools
 import subprocess as sp
 import sys
 import textwrap
@@ -21,7 +21,311 @@ import time
 import tkinter as tk
 import traceback
 import uuid
-import platform
+
+from pydo import bases
+
+MSEC = 1.0 / 1000.0
+
+class LinKeyboard(bases.Keyboard):
+    # libinput names -> tk names
+    # if decide want to parse the libinput output to auto-detect
+    # which keys etc...
+    libinputnames = {
+        '0': '_0',
+        '1': '_1',
+        '2': '_2',
+        '3': '_3',
+        '4': '_4',
+        '5': '_5',
+        '6': '_6',
+        '7': '_7',
+        '8': '_8',
+        '9': '_9',
+        'A': 'a',
+        'B': 'b',
+        'C': 'c',
+        'D': 'd',
+        'E': 'e',
+        'F': 'f',
+        'G': 'g',
+        'H': 'h',
+        'I': 'i',
+        'J': 'j',
+        'K': 'k',
+        'L': 'l',
+        'M': 'm',
+        'N': 'n',
+        'O': 'o',
+        'P': 'p',
+        'Q': 'q',
+        'R': 'r',
+        'S': 's',
+        'T': 't',
+        'U': 'u',
+        'V': 'v',
+        'W': 'w',
+        'X': 'x',
+        'Y': 'y',
+        'Z': 'z',
+        'SPACE': 'space',
+        'GRAVE': 'grave',
+        'MINUS': 'minus',
+        'EQUAL': 'equal',
+        'LEFTBRACE': 'bracketleft',
+        'RIGHTBRACE': 'bracketright',
+        'BACKSLASH': 'backslash',
+        'SEMICOLON': 'semicolon',
+        'APOSTROPHE': 'apostrophe',
+        'COMMA': 'comma',
+        'DOT': 'period',
+        'SLASH': 'slash',
+        'ESC': 'Escape',
+        'BACKSPACE': 'BackSpace',
+        'ENTER': 'Return',
+        'INSERT': 'Insert',
+        'HOME': 'Home',
+        'PAGEUP': 'Prior',
+        'DELETE': 'Delete',
+        'END': 'End',
+        'PAGEDOWN': 'Next',
+        'TAB': 'Tab',
+        'CAPSLOCK': 'Caps_Lock',
+        'SCROLLLOCK': 'Scroll_Lock',
+        'NUMLOCK': 'Num_Lock',
+        'PAUSE': 'Pause',
+        'LEFTMETA': 'Super_L',
+        'RIGHTMETA': 'Super_R',
+        'LEFTALT': 'Alt_L',
+        'RIGHTALT': 'Alt_R',
+        'LEFTSHIFT': 'Shift_L',
+        'RIGHTSHIFT': 'Shift_R',
+        'LEFTCTRL': 'Control_L',
+        'RIGHTCTRL': 'Control_R',
+        'UP': 'Up',
+        'LEFT': 'Left',
+        'DOWN': 'Down',
+        'RIGHT': 'Right',
+        'KP0': 'kp_0',
+        'KP1': 'kp_1',
+        'KP2': 'kp_2',
+        'KP3': 'kp_3',
+        'KP4': 'kp_4',
+        'KP5': 'kp_5',
+        'KP6': 'kp_6',
+        'KP7': 'kp_7',
+        'KP8': 'kp_8',
+        'KP9': 'kp_9',
+        'KPASTERISK': 'kp_asterisk',
+        'KPPLUS': 'kp_plus',
+        'KPMINUS': 'kp_minus',
+        'KPDOT': 'kp_dot',
+        'KPSLASH': 'kp_slash',
+    }
+
+    _rawkeys = {
+        '_0': 11,
+        '_1': 2,
+        '_2': 3,
+        '_3': 4,
+        '_4': 5,
+        '_5': 6,
+        '_6': 7,
+        '_7': 8,
+        '_8': 9,
+        '_9': 10,
+        'a': 30,
+        'b': 48,
+        'c': 46,
+        'd': 32,
+        'e': 18,
+        'f': 33,
+        'g': 34,
+        'h': 35,
+        'i': 23,
+        'j': 36,
+        'k': 37,
+        'l': 38,
+        'm': 50,
+        'n': 49,
+        'o': 24,
+        'p': 25,
+        'q': 16,
+        'r': 19,
+        's': 31,
+        't': 20,
+        'u': 22,
+        'v': 47,
+        'w': 17,
+        'x': 45,
+        'y': 21,
+        'z': 44,
+        'SPACE': 57,
+        'GRAVE': 41,
+        'MINUS': 12,
+        'EQUAL': 13,
+        'LEFTBRACE': 26,
+        'RIGHTBRACE': 27,
+        'BACKSLASH': 43,
+        'SEMICOLON': 39,
+        'APOSTROPHE': 40,
+        'COMMA': 51,
+        'DOT': 52,
+        'SLASH': 53,
+        'F1': 59,
+        'F2': 60,
+        'F3': 61,
+        'F4': 62,
+        'F5': 63,
+        'F6': 64,
+        'F7': 65,
+        'F8': 66,
+        'F9': 67,
+        'F10': 68,
+        'F11': 87,
+        'F12': 88,
+        'F13': 183,
+        'F14': 184,
+        'F15': 185,
+        'F16': 186,
+        'F17': 187,
+        'F18': 188,
+        'F19': 189,
+        'F20': 190,
+        'F21': 191,
+        'F22': 192,
+        'F23': 193,
+        'F24': 194,
+        'ESC': 1,
+        'BACKSPACE': 14,
+        'ENTER': 28,
+        'INSERT': 110,
+        'HOME': 102,
+        'PAGEUP': 104,
+        'DELETE': 111,
+        'END': 107,
+        'PAGEDOWN': 109,
+        'TAB': 15,
+        'CAPSLOCK': 58,
+        'SCROLLLOCK': 70,
+        'NUMLOCK': 69,
+        'PAUSE': 119,
+        'LEFTMETA': 125,
+        'RIGHTMETA': 126,
+        'LEFTALT': 56,
+        'RIGHTALT': 100,
+        'LEFTSHIFT': 42,
+        'RIGHTSHIFT': 54,
+        'LEFTCTRL': 29,
+        'RIGHTCTRL': 97,
+        'UP': 103,
+        'LEFT': 105,
+        'DOWN': 108,
+        'RIGHT': 106,
+        'KP0': 82,
+        'KP1': 79,
+        'KP2': 80,
+        'KP3': 81,
+        'KP4': 75,
+        'KP5': 76,
+        'KP6': 77,
+        'KP7': 71,
+        'KP8': 72,
+        'KP9': 73,
+        'KPASTERISK': 55,
+        'KPPLUS': 78,
+        'KPMINUS': 74,
+        'KPDOT': 83,
+        'KPSLASH': 98,
+
+        # 'ZENKAKUHANKAKU': 85,
+        # '102ND': 86,
+        # 'RO': 89,
+        # 'KATAKANA': 90,
+        # 'HIRAGANA': 91,
+        # 'HENKAN': 92,
+        # 'KATAKANAHIRAGANA': 93,
+        # 'MUHENKAN': 94,
+        # 'KPJPCOMMA': 95,
+        # 'KPENTER': 96,
+        # 'SYSRQ': 99,
+        # 'MUTE': 113,
+        # 'VOLUMEDOWN': 114,
+        # 'VOLUMEUP': 115,
+        # 'POWER': 116,
+        # 'KPEQUAL': 117,
+        # 'KPCOMMA': 121,
+        # 'HANGEUL': 122,
+        # 'HANJA': 123,
+        # 'YEN': 124,
+        # 'COMPOSE': 127,
+        # 'STOP': 128,
+        # 'AGAIN': 129,
+        # 'PROPS': 130,
+        # 'UNDO': 131,
+        # 'FRONT': 132,
+        # 'COPY': 133,
+        # 'OPEN': 134,
+        # 'PASTE': 135,
+        # 'FIND': 136,
+        # 'CUT': 137,
+        # 'HELP': 138,
+        # 'CALC': 140,
+        # 'SLEEP': 142,
+        # 'WWW': 150,
+        # 'COFFEE': 152,
+        # 'BACK': 158,
+        # 'FORWARD': 159,
+        # 'EJECTCD': 161,
+        # 'NEXTSONG': 163,
+        # 'PLAYPAUSE': 164,
+        # 'PREVIOUSSONG': 165,
+        # 'STOPCD': 166,
+        # 'REFRESH': 173,
+        # 'EDIT': 176,
+        # 'SCROLLUP': 177,
+        # 'SCROLLDOWN': 178,
+        # 'KPLEFTPAREN': 179,
+        # 'KPRIGHTPAREN': 180,
+        # 'UNKNOWN': 240,
+    }
+
+    def __init__(self):
+        try:
+            self._rawkeys = self.load_keyboard()
+        except Exception:
+            pass
+        super(LinKeyboard, self).__init__()
+
+
+    @staticmethod
+    def load_keyboard():
+        raise NotImplementedError
+        # was it stdout or stderr, or did it specify an output file
+        # I do not remember...
+        p = sp.Popen(['sudo', 'libinput', 'record'], stdout=sp.PIPE)
+        stdo, stde = p.communicate()
+        #TODO parse stdo for actual dict
+        return {
+            LinKeyboard.libinputnames.get(k, k): v
+            for k, v in libinput_keys.items()}
+
+    def get(self, *args):
+        self._rawkeys.get(*args)
+    def update(self, *args):
+        self._rawkeys.update(*args)
+    def items(self):
+        return self._rawkeys.items()
+    def __contains__(self, key):
+        return key in self._rawkeys
+    def __getitem__(self, key):
+        return self._rawkeys[key]
+
+
+class ydo(bases.ydo):
+    m = bases.Mouse
+    k = LinKeyboard()
+
+
 
 def eprint(*args, **kwargs):
     kwargs.setdefault('file', sys.stderr)
@@ -402,14 +706,11 @@ class ydotoold(object):
         """Open ydotoold process if needed."""
         if self.proc is not None:
             return
-        command = []
+        command = ['bash', '-c']
         if os.environ['USER'] != 'root':
-            command.append('sudo')
-        command.extend(('bash', '-c'))
+            command.insert(0, 'sudo')
         qpath = shlex.quote(self.path)
         command.append(self.SCRIPT.format(qpath, shlex.quote(qpath)))
-        # TODO check if bufsize=0 is necessary
-        # updating readtil to use readinto1 is good enough...
         proc = sp.Popen(command, stdout=sp.PIPE, bufsize=0)
         if self.verbose:
             out = ToStderr()
@@ -424,14 +725,6 @@ class ydotoold(object):
         self.proc = proc
         return
 
-    def __enter__(self):
-        self.open()
-        return self
-    def __exit__(self, tp, exc, tb):
-        self.close()
-    def __del__(self):
-        self.close()
-
     def close(self):
         if self.proc is not None:
             try:
@@ -442,60 +735,6 @@ class ydotoold(object):
                 traceback.print_exc()
             self.proc = None
 
-class Bash(object):
-    def __init__(self, sudo=False, stdout=sp.DEVNULL, stderr=sp.DEVNULL, **kwargs):
-        """Initialize bash process."""
-        self.proc = None
-        self.bashin = None
-        self.stderr = None
-        self.stdout = None
-        self.open(sudo, stdout, stderr, **kwargs)
-
-    def open(self, sudo=False, stdout=sp.DEVNULL, stderr=sp.DEVNULL, **kwargs):
-        if self.proc is not None:
-            return
-        if sudo:
-            command = ['sudo', 'bash']
-        else:
-            command = ['bash']
-        self.proc = sp.Popen(
-            command, stdin=sp.PIPE, stdout=stdout, stderr=stderr, **kwargs)
-        if kwargs.get('text', False):
-            self.bashin = self.proc.stdin
-        else:
-            self.bashin = io.TextIOWrapper(self.proc.stdin)
-        self.stdout = self.proc.stdout
-        self.stderr = self.proc.stderr
-        self('trap "" SIGINT')
-
-    def close(self):
-        if self.proc is None:
-            return
-        # proc.wait uses os.waitpid, but it seems like if
-        # __del__ is called due to interpreter exit, then
-        # os.waitpid might have been set to None causing
-        # an error.
-        try:
-            self('exit')
-            time.sleep(0.1)
-            for i in range(3):
-                if self.proc.poll() is not None:
-                    break
-                time.sleep(1)
-            else:
-                self.proc.terminate()
-        except IOError:
-            traceback.print_exc()
-        try:
-            self.proc.wait()
-        except Exception:
-            traceback.print_exc()
-        try:
-            self.bashin.close()
-        except Exception:
-            traceback.print_exc()
-        self.proc = None
-
     def __enter__(self):
         self.open()
         return self
@@ -503,23 +742,6 @@ class Bash(object):
         self.close()
     def __del__(self):
         self.close()
-
-    def __bool__(self):
-        return self.proc is not None and self.proc.poll() is None
-
-    def __call__(self, *args, **kwargs):
-        """Write to bash process.
-
-        Same as print(), except flush defaults to True
-        and file defaults to the bash stdin.
-        """
-        kwargs.setdefault('flush', True)
-        kwargs.setdefault('file', self.bashin)
-        try:
-            print(*args, **kwargs)
-        except Exception:
-            traceback.print_exc()
-        return self
 
 
 class ydotool(object):
@@ -633,34 +855,6 @@ class ydotool(object):
     # sudo libinput read -o out.yaml, sleep(1), terminate(),
     # then parse for key: name, form a dict, ...
     # is outputting to stdout possible? otherwise use process substitution?
-    rawkeys = {
-        'ESC': 1, '1': 2, '2': 3, '3': 4, '4': 5, '5': 6, '6': 7, '7': 8, '8': 9, '9': 10, '0': 11,
-        'MINUS': 12, 'EQUAL': 13, 'BACKSPACE': 14, 'TAB': 15,
-        'Q': 16, 'W': 17, 'E': 18, 'R': 19, 'T': 20, 'Y': 21, 'U': 22, 'I': 23, 'O': 24, 'P': 25,
-        'LEFTBRACE': 26, 'RIGHTBRACE': 27, 'ENTER': 28, 'LEFTCTRL': 29,
-        'A': 30, 'S': 31, 'D': 32, 'F': 33, 'G': 34, 'H': 35, 'J': 36, 'K': 37, 'L': 38,
-        'SEMICOLON': 39, 'APOSTROPHE': 40, 'GRAVE': 41, 'LEFTSHIFT': 42, 'BACKSLASH': 43,
-        'Z': 44, 'X': 45, 'C': 46, 'V': 47, 'B': 48, 'N': 49, 'M': 50,
-        'COMMA': 51, 'DOT': 52, 'SLASH': 53, 'RIGHTSHIFT': 54, 'KPASTERISK': 55, 'LEFTALT': 56, 'SPACE': 57, 'CAPSLOCK': 58,
-        'F1': 59, 'F2': 60, 'F3': 61, 'F4': 62, 'F5': 63, 'F6': 64, 'F7': 65, 'F8': 66, 'F9': 67, 'F10': 68,
-        'NUMLOCK': 69, 'SCROLLLOCK': 70, 'KP7': 71, 'KP8': 72, 'KP9': 73,
-        'KPMINUS': 74, 'KP4': 75, 'KP5': 76, 'KP6': 77, 'KPPLUS': 78,
-        'KP1': 79, 'KP2': 80, 'KP3': 81, 'KP0': 82, 'KPDOT': 83,
-        'ZENKAKUHANKAKU': 85, '102ND': 86, 'F11': 87, 'F12': 88, 'RO': 89,
-        'KATAKANA': 90, 'HIRAGANA': 91, 'HENKAN': 92, 'KATAKANAHIRAGANA': 93, 'MUHENKAN': 94,
-        'KPJPCOMMA': 95, 'KPENTER': 96, 'RIGHTCTRL': 97, 'KPSLASH': 98, 'SYSRQ': 99, 'RIGHTALT': 100,
-        'HOME': 102, 'UP': 103, 'PAGEUP': 104, 'LEFT': 105, 'RIGHT': 106, 'END': 107, 'DOWN': 108,
-        'PAGEDOWN': 109, 'INSERT': 110, 'DELETE': 111,
-        'MUTE': 113, 'VOLUMEDOWN': 114, 'VOLUMEUP': 115, 'POWER': 116, 'KPEQUAL': 117, 'PAUSE': 119,
-        'KPCOMMA': 121, 'HANGEUL': 122, 'HANJA': 123, 'YEN': 124, 'LEFTMETA': 125, 'RIGHTMETA': 126,
-        'COMPOSE': 127, 'STOP': 128, 'AGAIN': 129, 'PROPS': 130, 'UNDO': 131,
-        'FRONT': 132, 'COPY': 133, 'OPEN': 134, 'PASTE': 135, 'FIND': 136, 'CUT': 137,
-        'HELP': 138, 'CALC': 140, 'SLEEP': 142, 'WWW': 150, 'COFFEE': 152, 'BACK': 158, 'FORWARD': 159,
-        'EJECTCD': 161, 'NEXTSONG': 163, 'PLAYPAUSE': 164, 'PREVIOUSSONG': 165, 'STOPCD': 166, 'REFRESH': 173,
-        'EDIT': 176, 'SCROLLUP': 177, 'SCROLLDOWN': 178, 'KPLEFTPAREN': 179, 'KPRIGHTPAREN': 180,
-        'F13': 183, 'F14': 184, 'F15': 185, 'F16': 186, 'F17': 187, 'F18': 188, 'F19': 189, 'F20': 190, 'F21': 191, 'F22': 192, 'F23': 193, 'F24': 194,
-        'UNKNOWN': 240,
-    }
     def keys(*specs):
         """Press keys in order.
 
