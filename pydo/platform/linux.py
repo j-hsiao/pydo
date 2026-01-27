@@ -514,34 +514,25 @@ class ydo(bases.ydo):
     def open(self, daemon, noaccel, **kwargs):
         if self.bash is not None:
             return
-        bash = bash.Bash(stdout=sp.PIPE, **kwargs)
+        partials = []
         try:
+            partials.append(bash.Bash(stdout=sp.PIPE, **kwargs))
             if daemon:
-                self.daemon = ydotoold(sock=self.sockpath, verbose=self.verbose)
-            try:
-                if noaccel:
-                    self.noaccel = NoMouseAccel()
-                    self.noaccel.push()
-                try:
-                    self.pos = pos(self)
-                    try:
-                        bash('export YDOTOOL_SOCKET={}'.format(shlex.quote(self.sockpath)))
-                        self.bash = bash
-                    finally:
-                        if self.bash is None:
-                            self.pos.close()
-                            self.pos = None
-                finally:
-                    if noaccel and self.bash is None:
-                        self.noaccel.close()
-                        self.noaccel = None
-            finally:
-                if daemon and self.bash is None:
-                    self.daemon.close()
-                    self.daemon = None
+                partials.append(ydotoold(sock=self.sockpath, verbose=self.verbose))
+            else:
+                partials.append(None)
+            if noaccel:
+                partials.append(NoMouseAccel())
+                partials[-1].push()
+            else:
+                partials.append(None)
+            partials.append(kwargs.get('pos', DragPos))
+            partials[0]('export YDOTOOL_SOCKET={}'.format(shlex.quote(self.sockpath)))
+            self.bash, self.daemon, self.noaccel, self.pos = partials
+            del partials[:]
         finally:
-            if self.bash is None:
-                bash.close()
+            for partial in partials:
+                partial.close()
 
     def close(self):
         if self.bash is None:
@@ -579,10 +570,6 @@ class ydo(bases.ydo):
         """Press/release a key."""
         raise NotImplementedError
 
-
-
-
-
 def detect_deiconify_motion_type(r, nsamples=0, verbose=False):
     """Detect whether a <Motion> will be visible or not after deiconify.
 
@@ -596,7 +583,8 @@ def detect_deiconify_motion_type(r, nsamples=0, verbose=False):
         Windows no          1               1
         wsl     yes         6               5 (sometimes 6)
         X (vnc) no          4               4
-        wayland yes         TODO            TODO
+        wayland yes*        2(sometimes 3)  2 (sometimes 3)
+    *sometimes no... not consistent, not sure how to make it consistent.
     Return tuple: (
         Motion is expected?,
         number of configs before ready,
@@ -627,6 +615,7 @@ def detect_deiconify_motion_type(r, nsamples=0, verbose=False):
             extraenter = f'puts "enterred... %x %y %X %Y [expr ${total}]"\n'
             extraconfig = f'\nputs "configure [expr ${total}]"'
             extramotion = f'puts "motioned %x %y %X %Y [expr ${total}]"\n'
+            extracleanup = f'puts "Failed to auto-close"\n'
         else:
             extraenter = extraconfig = extramotion = ''
         t.bind('<Enter>', f'{extraenter}set {mid} [expr ${total}]\nif {{${total} == 4 || ${total} == 1}} {{destroy {t}}}')
@@ -634,16 +623,82 @@ def detect_deiconify_motion_type(r, nsamples=0, verbose=False):
         t.bind('<Motion>', f'{extramotion}destroy {t}')
 
         t.attributes('-topmost', True, '-fullscreen', True)
+        ret = r.call('after', '500', f'{extracleanup}set {total} [expr -${total}]\ndestroy {t}')
         t.deiconify()
         t.wait_window()
+        r.call('after', 'cancel', ret)
         config_count = r.exprlong(f'${total}')
-        return (int(config_count) != 1 and int(config_count) != 4), config_count, r.exprlong(f'${mid}')
+        return (config_count != 1 and config_count != 4 and config_count > 0), config_count, r.exprlong(f'${mid}')
     else:
         ret = ([], [], [])
         for i in range(nsamples):
             for lst, val in zip(ret, detect_deiconify_motion_type(r, 0, verbose)):
                 lst.append(val)
         return ret
+
+class DragPos(object):
+    """Mouse positioning.
+
+    Hold a seldom-used mouse button in tk window and use callbacks
+    to track mouse.
+    """
+    def __init__(self, ydo, unused=2):
+        self.pos = None
+        self.ydo = ydo
+        self.tk = tk.Tk()
+        self.tk.withdraw()
+        self.tk.title('Drag Positioning')
+        self.mb = getattr(
+            self.ydo.m,
+            ('LEFT', 'MIDDLE', 'RIGHT')[unused])
+        self.tk.createcommand('MonitorPos', self._start)
+        if detect_deiconify_motion_type(self.tk)[0]:
+            self.tk.bind('<<Motion>', 'MonitorPos')
+        else:
+            self.tk.bind('<Enter>', 'MonitorPos')
+        self.tk.createcommand('HideWindow', self._hide)
+        self.tk.bind(f'<Button-{unused}>', 'HideWindow')
+        self.tk.createcommand('StopPosition', self._stop)
+        self.tk.bind(f'<ButtonRelease-{unused}>', 'StopPosition')
+        self.tk.createcommand('UpdatePosition', self._update_position)
+        self.tk.bind(f'<B{unused}-Motion>', 'UpdatePosition %X %Y')
+        self.tk.createcommand('PauseMonitoring', self.pause)
+        self.tk.bind('<Control-Escape>', 'PauseMonitoring.')
+
+    def pause(self):
+        self.ydo.click(self.mb | self.ydo.m.UP)
+        self.tk.deiconify()
+        self.tk.geometry('200x200+0+0')
+
+    def resume(self):
+        self.tk.deiconify()
+        self.tk('-fullscreen', True, '-topmost', True)
+
+    def _start(self):
+        self.ydo.click(self.mb | self.ydo.m.DOWN)
+    def _hide(self):
+        self.tk.attributes('-fullscreen', False)
+        self.tk.geometry('1x1+0+0')
+    def _stop(self):
+        self.tk.withdraw()
+
+    def _update_position(self, x, y):
+        self.pos = (int(x), int(y))
+
+    def move(self, x, y, absolute=True):
+        """Checked motion."""
+        pass
+
+class PopPos(object):
+    """Mouse positioning.
+
+    Use deiconify fullscreen topmost tk window to determine
+    the mouse position.
+    """
+    pass
+
+
+
 
 class DragMotion(object):
     """Use tkinter to read current mouse position using drag+motion."""
