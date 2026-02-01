@@ -3,16 +3,17 @@ import subprocess as sp
 import io
 import time
 import traceback
+import select
 
 class Bash(object):
     """A Bash session."""
-    def __init__(self, sudo=False, stdout=sp.DEVNULL, stderr=sp.DEVNULL, **kwargs):
+    def __init__(self, sudo=False, **kwargs):
         """Initialize bash process."""
         self.proc = None
         self.stdin = None
         self.stderr = None
         self.stdout = None
-        self.open(sudo, stdout, stderr, **kwargs)
+        self.open(sudo, **kwargs)
 
     def open(self, sudo=False, stdout=sp.DEVNULL, stderr=sp.DEVNULL, **kwargs):
         if self.proc is not None:
@@ -39,20 +40,16 @@ class Bash(object):
         # os.waitpid might have been set to None causing
         # an error.
         try:
-            self('exit')
-            self.stdin.flush()
-            self.stdin.close()
-        except IOError:
-            traceback.print_exc()
-        time.sleep(0.1)
-        try:
-            for i in range(3):
+            try:
+                self('exit')
+                self.stdin.flush()
+            except IOError:
                 if self.proc.poll() is not None:
-                    break
-                time.sleep(1)
-            else:
+                    return
+                traceback.print_exc()
+            if not select.select([self.stdin.fileno()], (), (), 3)[0]:
                 self.proc.terminate()
-                self.proc.wait()
+            self.proc.communicate()
         finally:
             self.proc = None
 
