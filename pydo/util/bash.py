@@ -41,7 +41,7 @@ class Bash(object):
         # an error.
         try:
             try:
-                self('exit')
+                self.stdin.write('exit\n')
                 self.stdin.flush()
             except IOError:
                 if self.proc.poll() is not None:

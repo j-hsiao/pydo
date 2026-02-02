@@ -2,11 +2,15 @@ from .mouse import Mouse
 from .keyboard import DictKeyboard
 from pydo.util import bash
 
+import io
 import os
 import shlex
 import subprocess as sp
 import tempfile
+import textwrap
+import threading
 import time
+import traceback
 
 class LinKeyboard(DictKeyboard):
     # libinput names -> tk names
@@ -377,6 +381,110 @@ class LinKeyboard(DictKeyboard):
         raise ValueError('Keyboard Check Failed.')
 
 
+class ydotoold(object):
+    SCRIPT = textwrap.dedent('''
+        trap '' SIGINT
+        stdbuf -oL ydotoold -p {0} &
+        pid=$!
+        trap "kill $pid; rm "{1} EXIT
+        ''')
+
+    def __init__(self, *args, **kwargs):
+        self.socket = None
+        self.verbose = None
+        self.thread = None
+        self.proc = None
+        self.open(*args, **kwargs)
+
+    def open(self, socket=None, verbose=None):
+        if socket is None:
+            if self.socket is None:
+                socket = os.path.join('/dev/shm', os.environ.get('USER', '').join(('pydo_', '.sock')))
+            else:
+                socket = self.socket
+        if verbose is None:
+            verbose = False if self.verbose is None else self.verbose
+        proc = bash.Bash(
+            sudo=(os.environ.get('USER', '') != 'root'),
+            stdout=sp.PIPE, bufsize=0)
+        try:
+            proc('trap "" SIGINT')
+            qsock = shlex.quote(socket)
+            proc('stdbuf -oL ydotoold -p {} &'.format(qsock))
+            proc('pid=$!')
+            if verbose:
+                out = getattr(sys.stderr, 'buffer', sys.stderr)
+            else:
+                out = None
+            buf, amt = self.read_til(proc.stdout, target=b'READY', out=out)
+            if verbose:
+                out.write(memoryview(buf)[:amt])
+            t = threading.Thread(target=self.forward, args=(proc.stdout, out))
+            t.start()
+            proc('trap "kill $pid; rm "{} EXIT'.format(shlex.quote(qsock)))
+            self.close()
+            self.thread = t
+            self.socket = socket
+            self.verbose = verbose
+            self.proc = proc
+        finally:
+            if self.proc is not proc:
+                proc.close()
+
+    def close(self):
+        if self.proc is None:
+            return
+        try:
+            self.proc.close()
+        except Exception:
+            print('Failed to close ydotoold bash process:', self.proc.pid, file=sys.stderr)
+            traceback.print_exc()
+        else:
+            self.thread.join()
+        finally:
+            self.proc = None
+            self.thread = None
+
+    def __str__(self):
+        return self.socket
+
+    @staticmethod
+    def forward(f1, f2):
+        write = type if f2 is None else f2.write
+        for line in f1:
+            write(line)
+
+    @staticmethod
+    def read_til(f, target=b'READY', bufsize=io.DEFAULT_BUFFER_SIZE, out=None):
+        """Read until a target sequence.
+
+        Return buffer and amount of data.
+        """
+        overlap = len(target)-1
+        buf = bytearray(max(bufsize, len(target)))
+        view = memoryview(buf)
+        total = 0
+        readinto = getattr(f, 'readinto1', f.readinto)
+        amt = readinto(view)
+        while amt:
+            end = total + amt
+            idx = buf.find(target, max(0, total-overlap), end)
+            if idx >= 0:
+                if out is not None:
+                    out.write(view[:idx])
+                total = end-idx
+                view[:total] = view[idx:end]
+                return buf, total
+            elif end == len(buf):
+                if out is not None:
+                    out.write(view[:-overlap])
+                view[:overlap] = view[:-overlap]
+                end = overlap
+            total = end
+            amt = readinto(view[total:])
+        return None, None
+
+
 
 class ydotool(object):
     """Basic ydotool functionality.
@@ -385,32 +493,78 @@ class ydotool(object):
     acceleration)
     Press keys.
     """
-    def __init__(self, daemon=False, socket=None):
+    def __init__(self, *args, **kwargs):
         """Initialize ydotool.
 
         daemon: bool, Start a daemon too.
         """
+        self.bash = None
+        self.daemon = None
+        self.open(*args, **kwargs)
+
+    def close(self):
+        if self.daemon is not None:
+            try:
+                self.daemon.close()
+            except Exception:
+                traceback.print_exc()
+            finally:
+                self.daemon = None
+        if self.bash is not None:
+            try:
+                self.bash.close()
+            except Exception:
+                traceback.print_exc()
+            finally:
+                self.bash = None
+
+    def open(self, daemon=False, socket=None, verbose=False, **kwargs):
+        sudo = os.environ.get('USER', '') != 'root'
         if socket is None:
-            socket = os.path.join('/dev/shm', 'pydo_'+os.environ.get('USER', '')+'.sock')
-        self.bash = bash.Bash(sudo=(os.environ.get('USER', None) != 'root'), stdout=bash.sp.PIPE)
+            socket = os.path.join('/dev/shm', os.environ.get('USER', '').join(('pydo_', '.sock')))
+        if verbose:
+            kwargs.setdefault('stderr', None)
         if daemon:
-            pass
+            daemonproc = ydotoold(socket)
         else:
-            pass
+            daemonproc = None
+        try:
+            bashproc = bash.Bash(sudo=sudo, stdout=bash.sp.PIPE, **kwargs)
+            try:
+                bashproc('export YDOTOOL_SOCKET={}'.format(shlex.quote(socket)))
+                self.close()
+                self.bash = bashproc
+                self.daemon = daemonproc
+            finally:
+                if self.bash is not bashproc:
+                    bashproc.close()
+        finally:
+            if daemon and self.daemon is not daemonproc:
+                daemonproc.close()
 
     def mousemove(self, x, y, absolute=True):
         """Move the mouse."""
-        raise NotImplementedError
+        self.bash('ydotool mousemove -x {} -y {} >&2\necho'.format(x, y)).stdout.readline()
 
     def click(self, code):
         """Click the mouse."""
-        raise NotImplementedError
+        self.bash('ydotool click 0x{:02x} >&2\necho'.format(code)).stdout.readline()
 
     def keypress(self, key, down=True, up=True, delay=0):
         """Press/release a key."""
         raise NotImplementedError
 
-    def close(self):
-        if self.daemon is not None:
-            self.daemon.close()
-        self.bash.close()
+
+    def type(self, text, nextdelay=0, keydelay=12, flush=12):
+        """Type text.
+
+        nextdelay: int(msec), delay between words.
+        keydelay: int(msec), delay between keystrokes.
+        """
+        self.bash(
+            'ydotool type', shlex.quote(text),
+            # TODO verify these arguments
+            # '--next-delay', nextdelay,
+            # '--key-delay', keydelay,
+            '>&2\necho'
+        ).stdout.readline()
