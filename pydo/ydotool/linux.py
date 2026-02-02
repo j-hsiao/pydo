@@ -351,7 +351,6 @@ class LinKeyboard(DictKeyboard):
         for keyboard, devs in keyboards.items():
             for dev in devs:
                 cmd.append(dev['Kernel'])
-                print(cmd)
                 try:
                     p = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.DEVNULL)
                 finally:
@@ -493,6 +492,9 @@ class ydotool(object):
     acceleration)
     Press keys.
     """
+    k = LinKeyboard()
+    m = Mouse
+
     def __init__(self, *args, **kwargs):
         """Initialize ydotool.
 
@@ -548,12 +550,24 @@ class ydotool(object):
 
     def click(self, code):
         """Click the mouse."""
+        if not Mouse.DOWNUP & code:
+            code |= Mouse.DOWNUP
         self.bash('ydotool click 0x{:02x} >&2\necho'.format(code)).stdout.readline()
 
-    def keypress(self, key, down=True, up=True, delay=0):
+    def keypress(self, key, down=False, up=False, delay=0):
         """Press/release a key."""
-        raise NotImplementedError
+        shift, num = self.k(key)
+        keys = []
+        if not down and not up:
+            down = up = True
+        if down:
+            keys.append('{}:{}'.format(num, 1))
+        if up:
+            keys.append('{}:{}'.format(num, 0))
 
+        if num is not None:
+            self.bash(
+                'ydotool key --key-delay {}'.format(delay), *keys)
 
     def type(self, text, nextdelay=0, keydelay=12, flush=12):
         """Type text.
@@ -562,9 +576,8 @@ class ydotool(object):
         keydelay: int(msec), delay between keystrokes.
         """
         self.bash(
-            'ydotool type', shlex.quote(text),
-            # TODO verify these arguments
-            # '--next-delay', nextdelay,
-            # '--key-delay', keydelay,
-            '>&2\necho'
+            'ydotool type',
+            '--next-delay', nextdelay,
+            '--key-delay', keydelay,
+            shlex.quote(text), '>&2\necho'
         ).stdout.readline()

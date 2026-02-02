@@ -68,4 +68,9 @@ class DictKeyboard(Keyboard):
         return key in self.keys
     def __getitem__(self, key):
         return self.keys[key]
-
+    def __call__(self, key):
+        k = self.keys.get(key, None)
+        if k is None:
+            k = self.shift.get(key, None)
+            return k is not None, k
+        return False, k

@@ -10,3 +10,4 @@ class Mouse(object):
     TASK = 0x7
     DOWN = 0x40
     UP = 0x80
+    DOWNUP = DOWN | UP
