@@ -1,6 +1,7 @@
 # https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
 from .mouse import Mouse
 from .keyboard import DictKeyboard
+from .ydotool import ydotool as _ydotool
 import ctypes
 import time
 
@@ -25,6 +26,7 @@ class WinMouse(Mouse):
     _WIN_XBUTTON1 = 1
     _WIN_XBUTTON2 = 2
 
+    _WIN_ABSMOVE = _WIN_ABSOLUTE | _WIN_MOVE
 
 
 class WinKeyboard(DictKeyboard):
@@ -249,7 +251,7 @@ class WinKeyboard(DictKeyboard):
 
 
 MSEC = 1.0 / 1000.0
-class ydotool(object):
+class ydotool(_ydotool):
     """Basic ydotool functionality.
 
     Move/click the moouse (might or might not be affected by
@@ -257,51 +259,100 @@ class ydotool(object):
     Press keys.
     """
 
-    @staticmethod
-    def move(x, y, absolute=True):
+    k = WinKeyboard()
+    m = WinMouse
+
+    def __init__(self, *args, **kwargs):
+        self.screensize = (
+            ctypes.windll.user32.GetSystemMetrics(0), # SM_CXSCREEN
+            ctypes.windll.user32.GetSystemMetrics(1)) # SM_CYSCREEN
+
+    def move(self, x, y, absolute=True):
         """Move the mouse."""
-        ctypes.windll.user32.mouse_event(
-            WinMouse._WIN_MOVE | (int(absolute) * WinMouse._WIN_ABSOLUTE),
-            dx, dy, 0, 0)
-
-    @staticmethod
-    def _compile_click(code):
-        """Return converted click code."""
-        key = code & 0x07
-        down = bool(code & Mouse.DOWN)
-        up = bool(code & Mouse.UP)
-        if not (up or down):
-            up = down = True
-        codes = []
-        if key < 3:
-            if down:
-                codes.append((1 << (key*2 + 1), 0, 0, 0, 0))
-            if up:
-                codes.append((1 << (key*2 + 2), 0, 0, 0, 0))
-        elif key < 5:
-            if down:
-                codes.append((WinMouse._WIN_XDOWN, 0, 0, key-2, 0))
-            if up:
-                codes.append((WinMouse._WIN_XUP, 0, 0, key-2, 0))
+        if absolute:
+            w, h = self.screensize
+            # windows absolute coord api takes a value
+            # scaling screenspace to 0 - 0xFFFF
+            nx = (min(max(0, x), w-1)*0x10000 + 0x8000) // w
+            ny = (min(max(0, y), h-1)*0x10000 + 0x8000) // h
+            ctypes.windll.user32.mouse_event(WinMouse._WIN_ABSMOVE, nx, ny, 0, 0)
         else:
-            raise ValueError(
-                'Mouse key not supported: {}'.format(("FORWARD", "BACK", "TASK")[key-5]))
-        return codes
+            ctypes.windll.user32.mouse_event(WinMouse._WIN_MOVE, x, y, 0, 0)
 
     @staticmethod
-    def click(code, delay=8):
-        """Click the mouse.
-
-        delay: delay between down and up in msec if applicable.
-        """
-        codes = ydotool._compile_click(code)
-        ctypes.windll.user32.mouse_event(*codes[0])
-        for idx in range(1, len(codes)):
-            time.sleep(delay * MSEC)
-            ctypes.windll.user32.mouse_event(*codes[idx])
+    def compile_clicks(codes):
+        """Compile a click into corresponding data for click()."""
+        ret = []
+        for code in codes:
+            key = code & 0x07
+            down = bool(code & Mouse.DOWN)
+            up = bool(code & Mouse.UP)
+            if not (up or down):
+                up = down = True
+            if key < 3:
+                if down:
+                    ret.append((1 << (key*2 + 1), 0))
+                if up:
+                    ret.append((1 << (key*2 + 2), 0))
+            elif key < 5:
+                if down:
+                    ret.append((WinMouse._WIN_XDOWN, key-2))
+                if up:
+                    ret.append((WinMouse._WIN_XUP, key-2))
+            else:
+                raise ValueError(
+                    'Mouse key not supported: {}'.format(("FORWARD", "BACK", "TASK")[key-5]))
+        return ret
 
     @staticmethod
-    def keypress(key, down=True, up=True, delay=0):
+    def click(*codes, **kwargs):
+        if not codes:
+            return
+        if isinstance(codes[0], list):
+            codes = codes[0]
+        else:
+            codes = ydotool.compile_clicks(_)
+        delay = kwargs.get('delay', 25) * MSEC
+        ctypes.windll.user32.mouse_event(codes[0][0], 0, 0, codes[0][1], 0)
+        for rep in range(kwargs.get('repeat', 0)+1):
+            for idx in range(not rep, len(codes)):
+                if delay:
+                    time.sleep(delay)
+                ctypes.windll.user32.mouse_event(codes[idx][0], 0, 0, codes[idx][1], 0)
+
+    @staticmethod
+    def compile_keys(keys):
+        # need to track:
+        # is shift needed?
+        # if is it caps-lock sensitive?
+        result = []
+        SHIFT = ydotool.k['Shift_L']
+        for key in keys:
+            result = key.split(':', 1)
+            key = result[0]
+            if len(result) == 1:
+                ev = '10'
+            else:
+                ev = result[1:]
+
+            cased = key.lower() != key.upper()
+            shift, knum = ydotool.k(key)
+            if knum is None:
+                raise ValueError('bad key: {}'.format(repr(key)))
+            if cased:
+                for v in ev:
+                    result.append((knum, 0 if v == '1' else 2))
+            else:
+                if shift:
+                    result.append((SHIFT, 0))
+                for v in ev:
+                    result.append((knum, 0 if v == '1' else 2))
+                if shift:
+                    result.append((SHIFT, 2))
+        return result
+
+    @staticmethod
+    def keypress(*keys, **kwargs):
         """Press a single key.
 
         key: int or string repr of the key
@@ -315,14 +366,35 @@ class ydotool(object):
         #     extendedkey = 1: If specified, the scan code was preceded by a prefix byte having the value 0xE0 (224).
         #     keyup = 2: key up instead of down
         # ctypes.windll.user32.keybd_event()
-        if isinstance(key, str):
-            key = ydotool.k[key]
-        if down:
-            ctypes.windll.user32.keybd_event(key, 0, 0, 0)
-            if up and delay:
-                time.sleep(delay*MSEC)
-        if up:
-            ctypes.windll.user32.keybd_event(key, 0, 2, 0)
+        if not keys:
+            return
+        if isinstance(keys[0], str):
+            keys = ydotool.compile_keys(keys)
+        else:
+            keys = keys[0]
+        delay = kwargs.get('delay', 12)*MSEC
 
+        it = iter(keys)
+        key, downup = next(it)
+        ctypes.windll.user32.keybd_event(key, 0, downup, 0)
+        for key, downup in it:
+            if delay:
+                time.sleep(delay)
+            ctypes.windll.user32.keybd_event(key, 0, downup, 0)
+
+    @staticmethod
+    def type(*text, **kwargs):
+        delay = kwargs.get('delay', 0)*MSEC
+        keydelay = kwargs.get('keydelay', 12)
+        it = iter(text)
+        t = next(it)
+        ydotool.keypress(ydotool.compile_keys(t), delay=keydelay)
+        for t in it:
+            if delay:
+                time.sleep(delay)
+            ydotool.keypress(ydotool.compile_keys(t), delay=keydelay)
+
+    def open(self, *args, **kwargs):
+        pass
     def close(self):
         pass

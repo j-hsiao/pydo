@@ -1,5 +1,6 @@
 from .mouse import Mouse
 from .keyboard import DictKeyboard
+from .ydotool import ydotool as _ydotool
 from pydo.util import bash
 
 import io
@@ -485,7 +486,7 @@ class ydotoold(object):
 
 
 
-class ydotool(object):
+class ydotool(_ydotool):
     """Basic ydotool functionality.
 
     Move/click the moouse (might or might not be affected by
@@ -544,15 +545,34 @@ class ydotool(object):
             if daemon and self.daemon is not daemonproc:
                 daemonproc.close()
 
-    def mousemove(self, x, y, absolute=True):
-        """Move the mouse."""
-        self.bash('ydotool mousemove -x {} -y {} >&2\necho'.format(x, y)).stdout.readline()
+    def move(self, x, y, absolute=True):
+        """Move the mouse.
 
-    def click(self, code):
-        """Click the mouse."""
-        if not Mouse.DOWNUP & code:
-            code |= Mouse.DOWNUP
-        self.bash('ydotool click 0x{:02x} >&2\necho'.format(code)).stdout.readline()
+        ydotool absolute mouse movement is achieved by first moving
+        the mouse to the topleft an excessive amount, and then
+        moving x,y.  Note however, that this movement is affected by
+        mouse acceleration, so will be inaccurate.
+        """
+        self.bash(
+            'ydotool mousemove',
+            ('-a -x' if absolute else '-x'), x, '-y', y,
+            '>&2\necho').stdout.readline()
+
+    @staticmethod
+    def compile_clicks(codes):
+        """Compile a single click into corresponding data for click()."""
+        DOWNUP = Mouse.DOWNUP
+        return ['0x{:02x}'.format(_ if (codes&DOWNUP) else (_|DOWNUP)) for _ in codes]
+
+    def click(self, *codes, delay=25, repeat=0):
+        # TODO: is repeat0 or repeat1 do it once?
+        if codes:
+            if isinstance(codes[0], int):
+                codes = self.compile_clicks(codes)
+            self.bash(
+                'ydotool click -d', delay,
+                '-r', repeat,
+                ' '.join(codes), '>&2\necho').stdout.readline()
 
     def keypress(self, key, down=False, up=False, delay=0):
         """Press/release a key."""
@@ -567,7 +587,7 @@ class ydotool(object):
 
         if num is not None:
             self.bash(
-                'ydotool key --key-delay {}'.format(delay), *keys)
+                'ydotool key -d {}'.format(delay), *keys)
 
     def type(self, text, nextdelay=0, keydelay=12, flush=12):
         """Type text.
@@ -577,7 +597,7 @@ class ydotool(object):
         """
         self.bash(
             'ydotool type',
-            '--next-delay', nextdelay,
-            '--key-delay', keydelay,
+            '-D', nextdelay,
+            '-d', keydelay,
             shlex.quote(text), '>&2\necho'
         ).stdout.readline()
