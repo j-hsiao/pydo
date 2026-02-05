@@ -29,9 +29,8 @@ class ydotool(object):
                or the result of `compile_clicks()`
         kwargs:
             delay=25: int(msec), delay between mouse click events (down, up)
-            repeat=0: int, number of repetitions.
+            repeat=1: int, number of times to perform the clicks.
         """
-        # TODO repeat=1 is do it once, or do it twice (first + 1 repeat)?
         raise NotImplementedError
 
     def compile_keys(self, keys):

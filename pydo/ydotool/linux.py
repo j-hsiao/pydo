@@ -564,13 +564,14 @@ class ydotool(_ydotool):
         DOWNUP = Mouse.DOWNUP
         return ['0x{:02x}'.format(_ if (codes&DOWNUP) else (_|DOWNUP)) for _ in codes]
 
-    def click(self, *codes, delay=25, repeat=0):
-        # TODO: is repeat0 or repeat1 do it once?
+    def click(self, *codes, delay=25, repeat=1):
         if codes:
             if isinstance(codes[0], int):
                 codes = self.compile_clicks(codes)
+            # man says click --next-delay is -d
+            # BUT in practice, it seems to be -D instead
             self.bash(
-                'ydotool click -d', delay,
+                'ydotool click -D', delay,
                 '-r', repeat,
                 ' '.join(codes), '>&2\necho').stdout.readline()
 
