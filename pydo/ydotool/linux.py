@@ -1,17 +1,25 @@
 from .mouse import Mouse
 from .keyboard import DictKeyboard
-from .ydotool import ydotool as _ydotool
+from . import ydotool as _ydotool
 from pydo.util import bash
 
 import io
 import os
 import shlex
 import subprocess as sp
+import sys
 import tempfile
 import textwrap
 import threading
 import time
 import traceback
+
+def default_socket(dirname=None, user=None):
+    if dirname is None:
+        dirname = os.environ.get('XDG_RUNTIME_DIR', '/dev/shm')
+    if user is None:
+        user = os.environ.get('USER', '')
+    return os.path.join(dirname, user.join(('pydo_', '.sock')))
 
 class LinKeyboard(DictKeyboard):
     # libinput names -> tk names
@@ -224,63 +232,65 @@ class LinKeyboard(DictKeyboard):
         'kp_dot': 83,
         'kp_slash': 98,
 
-        # 'ZENKAKUHANKAKU': 85,
-        # '102ND': 86,
-        # 'RO': 89,
-        # 'KATAKANA': 90,
-        # 'HIRAGANA': 91,
-        # 'HENKAN': 92,
-        # 'KATAKANAHIRAGANA': 93,
-        # 'MUHENKAN': 94,
-        # 'KPJPCOMMA': 95,
-        # 'KPENTER': 96,
-        # 'SYSRQ': 99,
-        # 'MUTE': 113,
-        # 'VOLUMEDOWN': 114,
-        # 'VOLUMEUP': 115,
-        # 'POWER': 116,
-        # 'KPEQUAL': 117,
-        # 'KPCOMMA': 121,
-        # 'HANGEUL': 122,
-        # 'HANJA': 123,
-        # 'YEN': 124,
-        # 'COMPOSE': 127,
-        # 'STOP': 128,
-        # 'AGAIN': 129,
-        # 'PROPS': 130,
-        # 'UNDO': 131,
-        # 'FRONT': 132,
-        # 'COPY': 133,
-        # 'OPEN': 134,
-        # 'PASTE': 135,
-        # 'FIND': 136,
-        # 'CUT': 137,
-        # 'HELP': 138,
-        # 'CALC': 140,
-        # 'SLEEP': 142,
-        # 'WWW': 150,
-        # 'COFFEE': 152,
-        # 'BACK': 158,
-        # 'FORWARD': 159,
-        # 'EJECTCD': 161,
-        # 'NEXTSONG': 163,
-        # 'PLAYPAUSE': 164,
-        # 'PREVIOUSSONG': 165,
-        # 'STOPCD': 166,
-        # 'REFRESH': 173,
-        # 'EDIT': 176,
-        # 'SCROLLUP': 177,
-        # 'SCROLLDOWN': 178,
-        # 'KPLEFTPAREN': 179,
-        # 'KPRIGHTPAREN': 180,
-        # 'UNKNOWN': 240,
+        # other
+        'ZENKAKUHANKAKU': 85,
+        '102ND': 86,
+        'RO': 89,
+        'KATAKANA': 90,
+        'HIRAGANA': 91,
+        'HENKAN': 92,
+        'KATAKANAHIRAGANA': 93,
+        'MUHENKAN': 94,
+        'KPJPCOMMA': 95,
+        'KPENTER': 96,
+        'SYSRQ': 99,
+        'MUTE': 113,
+        'VOLUMEDOWN': 114,
+        'VOLUMEUP': 115,
+        'POWER': 116,
+        'KPEQUAL': 117,
+        'KPCOMMA': 121,
+        'HANGEUL': 122,
+        'HANJA': 123,
+        'YEN': 124,
+        'COMPOSE': 127,
+        'STOP': 128,
+        'AGAIN': 129,
+        'PROPS': 130,
+        'UNDO': 131,
+        'FRONT': 132,
+        'COPY': 133,
+        'OPEN': 134,
+        'PASTE': 135,
+        'FIND': 136,
+        'CUT': 137,
+        'HELP': 138,
+        'CALC': 140,
+        'SLEEP': 142,
+        'WWW': 150,
+        'COFFEE': 152,
+        'BACK': 158,
+        'FORWARD': 159,
+        'EJECTCD': 161,
+        'NEXTSONG': 163,
+        'PLAYPAUSE': 164,
+        'PREVIOUSSONG': 165,
+        'STOPCD': 166,
+        'REFRESH': 173,
+        'EDIT': 176,
+        'SCROLLUP': 177,
+        'SCROLLDOWN': 178,
+        'KPLEFTPAREN': 179,
+        'KPRIGHTPAREN': 180,
+        'UNKNOWN': 240,
     }
 
-    def __init__(self):
-        try:
-            self.keys = self.load_keyboard()
-        except Exception:
-            pass
+    def __init__(self, load=False):
+        if load:
+            try:
+                self.keys = self.load_keyboard()
+            except Exception:
+                pass
         super(LinKeyboard, self).__init__()
 
     @staticmethod
@@ -381,7 +391,7 @@ class LinKeyboard(DictKeyboard):
         raise ValueError('Keyboard Check Failed.')
 
 
-class ydotoold(object):
+class ydotoold(_ydotool.ydotoold):
     SCRIPT = textwrap.dedent('''
         trap '' SIGINT
         stdbuf -oL ydotoold -p {0} &
@@ -390,16 +400,24 @@ class ydotoold(object):
         ''')
 
     def __init__(self, *args, **kwargs):
+        """Initialize ydotoold.
+
+        kwargs:
+            same as self.open()
+            same as subprocess.Popen()
+        """
         self.socket = None
         self.verbose = None
         self.thread = None
         self.proc = None
         self.open(*args, **kwargs)
 
-    def open(self, socket=None, verbose=None):
+    def __bool__(self):
+        return self.proc is not None
+    def open(self, socket=None, verbose=None, **kwargs):
         if socket is None:
             if self.socket is None:
-                socket = os.path.join('/dev/shm', os.environ.get('USER', '').join(('pydo_', '.sock')))
+                socket = default_socket()
             else:
                 socket = self.socket
         if verbose is None:
@@ -408,10 +426,13 @@ class ydotoold(object):
             sudo=(os.environ.get('USER', '') != 'root'),
             stdout=sp.PIPE, bufsize=0)
         try:
-            proc('trap "" SIGINT')
             qsock = shlex.quote(socket)
-            proc('stdbuf -oL ydotoold -p {} &'.format(qsock))
-            proc('pid=$!')
+            proc(
+                'trap "" SIGINT;',
+                'stdbuf -oL ydotoold -p {} &'.format(qsock),
+                'pid=$!;',
+                'trap "kill $pid; rm "{} EXIT'.format(shlex.quote(qsock)),
+            )
             if verbose:
                 out = getattr(sys.stderr, 'buffer', sys.stderr)
             else:
@@ -421,7 +442,6 @@ class ydotoold(object):
                 out.write(memoryview(buf)[:amt])
             t = threading.Thread(target=self.forward, args=(proc.stdout, out))
             t.start()
-            proc('trap "kill $pid; rm "{} EXIT'.format(shlex.quote(qsock)))
             self.close()
             self.thread = t
             self.socket = socket
@@ -486,21 +506,24 @@ class ydotoold(object):
 
 
 
-class ydotool(_ydotool):
+class ydotool(_ydotool.ydotool):
     """Basic ydotool functionality.
 
-    Move/click the moouse (might or might not be affected by
-    acceleration)
-    Press keys.
+    Generate mouse (might or might not be affected
+    by acceleration) and keyboard input.
     """
-    k = LinKeyboard()
     m = Mouse
 
     def __init__(self, *args, **kwargs):
         """Initialize ydotool.
 
         daemon: bool, Start a daemon too.
+        kwargs:
+            same as open()
+            same as subprocess.Popen()
+            same as LinKeyboard()
         """
+        self.k = LinKeyboard(kwargs.pop('load', False))
         self.bash = None
         self.daemon = None
         self.open(*args, **kwargs)
@@ -524,7 +547,7 @@ class ydotool(_ydotool):
     def open(self, daemon=False, socket=None, verbose=False, **kwargs):
         sudo = os.environ.get('USER', '') != 'root'
         if socket is None:
-            socket = os.path.join('/dev/shm', os.environ.get('USER', '').join(('pydo_', '.sock')))
+            socket = default_socket()
         if verbose:
             kwargs.setdefault('stderr', None)
         if daemon:
@@ -536,14 +559,17 @@ class ydotool(_ydotool):
             try:
                 bashproc('export YDOTOOL_SOCKET={}'.format(shlex.quote(socket)))
                 self.close()
-                self.bash = bashproc
                 self.daemon = daemonproc
+                self.bash = bashproc
             finally:
                 if self.bash is not bashproc:
                     bashproc.close()
         finally:
             if daemon and self.daemon is not daemonproc:
                 daemonproc.close()
+
+    def __bool__(self):
+        return self.bash is not None
 
     def move(self, x, y, absolute=True):
         """Move the mouse.

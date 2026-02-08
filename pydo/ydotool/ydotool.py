@@ -1,4 +1,22 @@
-class ydotool(object):
+class Context(object):
+    def __enter__(self):
+        if not self:
+            self.open()
+        return self
+    def __exit__(self, tp, exc, tb):
+        self.close()
+    def __bool__(self):
+        return True
+    def close(self):
+        pass
+    def open(self, *args, **kwargs):
+        pass
+
+class ydotoold(Context):
+    def __init__(self, *args, **kwargs):
+        pass
+
+class ydotool(Context):
     """Basic ydotool functionality.
 
     Move/click the moouse (might or might not be affected by
@@ -63,3 +81,4 @@ class ydotool(object):
             keydelay=12: int(msec), delay between key events
         """
         raise NotImplementedError
+

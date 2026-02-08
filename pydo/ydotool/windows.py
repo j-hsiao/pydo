@@ -1,9 +1,11 @@
 # https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
 from .mouse import Mouse
 from .keyboard import DictKeyboard
-from .ydotool import ydotool as _ydotool
+from . import ydotool as _ydotool
 import ctypes
 import time
+
+ydotoold = _ydotool.ydotoold
 
 class _LPoint(ctypes.Structure):
     _fields_ = [('x', ctypes.c_long), ('y', ctypes.c_long)]
@@ -251,7 +253,7 @@ class WinKeyboard(DictKeyboard):
 
 
 MSEC = 1.0 / 1000.0
-class ydotool(_ydotool):
+class ydotool(_ydotool.ydotool):
     """Basic ydotool functionality.
 
     Move/click the moouse (might or might not be affected by
@@ -393,8 +395,3 @@ class ydotool(_ydotool):
             if delay:
                 time.sleep(delay)
             ydotool.keypress(ydotool.compile_keys(t), delay=keydelay)
-
-    def open(self, *args, **kwargs):
-        pass
-    def close(self):
-        pass
