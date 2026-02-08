@@ -324,18 +324,16 @@ class ydotool(_ydotool.ydotool):
 
     @staticmethod
     def compile_keys(keys):
+        # TODO
         # need to track:
         # is shift needed?
         # if is it caps-lock sensitive?
-        result = []
+        items = []
         SHIFT = ydotool.k['Shift_L']
         for key in keys:
-            result = key.split(':', 1)
-            key = result[0]
-            if len(result) == 1:
-                ev = '10'
-            else:
-                ev = result[1:]
+            parts = key.split(':', 1)
+            key = parts[0]
+            ev = '10' if len(parts) == 1 else parts[1:]
 
             cased = key.lower() != key.upper()
             shift, knum = ydotool.k(key)
@@ -343,15 +341,15 @@ class ydotool(_ydotool.ydotool):
                 raise ValueError('bad key: {}'.format(repr(key)))
             if cased:
                 for v in ev:
-                    result.append((knum, 0 if v == '1' else 2))
+                    items.append((knum, 0 if v == '1' else 2))
             else:
                 if shift:
-                    result.append((SHIFT, 0))
+                    items.append((SHIFT, 0))
                 for v in ev:
-                    result.append((knum, 0 if v == '1' else 2))
+                    items.append((knum, 0 if v == '1' else 2))
                 if shift:
-                    result.append((SHIFT, 2))
-        return result
+                    items.append((SHIFT, 2))
+        return items
 
     @staticmethod
     def keypress(*keys, **kwargs):

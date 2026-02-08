@@ -10,7 +10,7 @@ else:
 def daemon(args):
     """Run the ydotoold daemon."""
     with ydotoold(socket=args.socket, verbose=args.verbose):
-        input('>>> ')
+        input('Press Return to exit...')
 
 
 p = argparse.ArgumentParser()
