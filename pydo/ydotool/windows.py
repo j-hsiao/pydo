@@ -309,55 +309,26 @@ class ydotool(_ydotool.ydotool):
     @staticmethod
     def click(*codes, **kwargs):
         if not codes:
-            return
-        if isinstance(codes[0], list):
-            codes = codes[0]
+            codes = ((WinMouse._WIN_LEFTDOWN, 0), (WinMouse._WIN_LEFTUP, 0))
+        elif isinstance(codes[0], int):
+            codes = ydotool.compile_clicks(codes)
         else:
-            codes = ydotool.compile_clicks(_)
+            codes = codes[0]
         delay = kwargs.get('delay', 25) * MSEC
-        ctypes.windll.user32.mouse_event(codes[0][0], 0, 0, codes[0][1], 0)
-        for rep in range(kwargs.get('repeat', 0)+1):
-            for idx in range(not rep, len(codes)):
+        for rep in range(kwargs.get('repeat', 1)):
+            for button, mod in codes:
+                ctypes.windll.user32.mouse_event(button, 0, 0, mod, 0)
                 if delay:
                     time.sleep(delay)
-                ctypes.windll.user32.mouse_event(codes[idx][0], 0, 0, codes[idx][1], 0)
 
     @staticmethod
     def compile_keys(keys):
-        # TODO
-        # need to track:
-        # is shift needed?
-        # if is it caps-lock sensitive?
-        items = []
-        SHIFT = ydotool.k['Shift_L']
-        for key in keys:
-            parts = key.split(':', 1)
-            key = parts[0]
-            ev = '10' if len(parts) == 1 else parts[1:]
-
-            cased = key.lower() != key.upper()
-            shift, knum = ydotool.k(key)
-            if knum is None:
-                raise ValueError('bad key: {}'.format(repr(key)))
-            if cased:
-                for v in ev:
-                    items.append((knum, 0 if v == '1' else 2))
-            else:
-                if shift:
-                    items.append((SHIFT, 0))
-                for v in ev:
-                    items.append((knum, 0 if v == '1' else 2))
-                if shift:
-                    items.append((SHIFT, 2))
-        return items
+        return [
+            (knum, 0 if ev == '1' else 2)
+            for knum, ev in _ydotool.ydotool.normalize_keys(ydotool, keys)]
 
     @staticmethod
     def keypress(*keys, **kwargs):
-        """Press a single key.
-
-        key: int or string repr of the key
-        delay: int (msec), delay between down and up.
-        """
         # SendInput seems to handle both mouse and keyboard instead of
         # separately but requires much more prep with nested structs.
         #
@@ -373,23 +344,18 @@ class ydotool(_ydotool.ydotool):
         else:
             keys = keys[0]
         delay = kwargs.get('delay', 12)*MSEC
-
-        it = iter(keys)
-        key, downup = next(it)
-        ctypes.windll.user32.keybd_event(key, 0, downup, 0)
-        for key, downup in it:
+        for key, downup in keys:
+            ctypes.windll.user32.keybd_event(key, 0, downup, 0)
             if delay:
                 time.sleep(delay)
-            ctypes.windll.user32.keybd_event(key, 0, downup, 0)
 
     @staticmethod
-    def type(*text, **kwargs):
+    def type(*words, **kwargs):
+        if not words:
+            return
         delay = kwargs.get('delay', 0)*MSEC
         keydelay = kwargs.get('keydelay', 12)
-        it = iter(text)
-        t = next(it)
-        ydotool.keypress(ydotool.compile_keys(t), delay=keydelay)
-        for t in it:
+        for word in words:
+            ydotool.keypress(ydotool.compile_keys(word), delay=keydelay)
             if delay:
                 time.sleep(delay)
-            ydotool.keypress(ydotool.compile_keys(t), delay=keydelay)
