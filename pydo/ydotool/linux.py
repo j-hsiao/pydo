@@ -595,58 +595,41 @@ class ydotool(_ydotool.ydotool):
         return ['0x{:02x}'.format(_ if (_&DOWNUP) else (_|DOWNUP)) for _ in codes]
 
     def click(self, *codes, delay=25, repeat=1):
-        if codes:
-            if isinstance(codes[0], int):
-                codes = self.compile_clicks(codes)
-            # man says click --next-delay is -d
-            # BUT in practice, it seems to be -D instead
-            self.bash(
-                'ydotool click -D', delay,
-                '-r', repeat,
-                ' '.join(codes), '>&2;echo').stdout.readline()
+        if not codes:
+            codes = ('0x{:02x}'.format(self.m.LEFT | self.m.DOWNUP),)
+        elif isinstance(codes[0], int):
+            codes = self.compile_clicks(codes)
         else:
-            self.click(self.m.LEFT, delay=delay, repeat=repeat)
+            codes = codes[0]
+        # man says click --next-delay is -d
+        # BUT in practice, it seems to be -D instead
+        self.bash(
+            'ydotool click -D', delay,
+            '-r', repeat,
+            ' '.join(codes), '>&2;echo').stdout.readline()
 
     def compile_keys(self, keys):
-        # TODO
-        items = []
-        for key in keys:
-            parts = key.split(':', 1)
-            key = parts[0]
-            if len(parts) == 1:
-                ev='10'
-            else:
-                ev = parts[1:]
-            cased = key.lower() != key.upper()
-            shift, knum = self.k(key)
+        return [
+            '{}:{}'.format(knum, ev)
+            for knum, ev in ydotool_.ydotool.normalize_keys(self, keys)]
 
-        return items
+    def keypress(self, *keys, **kwargs):
+        if not keys:
+            return
+        if isinstance(keys[0], str):
+            keys = self.compile_keys(keys)
+        else:
+            keys = keys[0]
+        delay = kwargs.get('delay', 12)
+        self.bash(
+            'ydotool key -d', delay, ' '.join(keys), '>&2;echo').stdout.readline()
 
-    def keypress(self, *keys, down=False, up=False, delay=0):
-        shift, num = self.k(key)
-        keys = []
-        if not down and not up:
-            down = up = True
-        if down:
-            keys.append('{}:{}'.format(num, 1))
-        if up:
-            keys.append('{}:{}'.format(num, 0))
-
-        if num is not None:
-            self.bash(
-                'ydotool key -d {}'.format(delay), *keys)
-
-    def type(self, *text, **kwargs):
-        cmd = [
-            'ydotool type',
-            '-D', kwargs.pop('nextdelay', 0),
-            '-d', kwargs.pop('keydelay', 12),
-        ]
-        for txt in text:
-            # ydotool interprets backslash X escape sequences.
-            # but str can already contain these characters.
-            # so prefer to take text literally.
-            cmd.append(
-                shlex.quote(txt.replace('\\', '\\\\')))
-        cmd.append('>&2;echo')
-        self.bash(*cmd).stdout.readline()
+    def type(self, *words, **kwargs):
+        if not words:
+            return
+        self.bash(
+            'ydotool type -D {} -d {}'.format(
+                kwargs.pop('nextdelay', 0),
+                kwargs.pop('keydelay', 12)),
+            ' '.join([shlex.quote(word.replace('\\', r'\\')) for word in words]),
+            '>&2;echo').stdout.readline()
