@@ -45,6 +45,7 @@ class ydotool(Context):
 
         codes: sequence of clicks taken by `compile_clicks()`
                or the result of `compile_clicks()`
+               If omitted, default to a left click.
         kwargs:
             delay=25: int(msec), delay between mouse click events (down, up)
             repeat=1: int, number of times to perform the clicks.
@@ -61,6 +62,36 @@ class ydotool(Context):
         """
         raise NotImplementedError
 
+    @staticmethod
+    def normalize_keys(inst, keys):
+        """Normalize keys into single-key events.
+
+        Key only is translated to down followed by up.
+        If shift is required, then it will be pressed
+        and released.
+        """
+        SHIFT = inst.k['Shift_L']
+        shifted = False
+        for key in keys:
+            parts = key.split(':', 1)
+            key = parts[0]
+            ev = parts[1:]
+            if not ev:
+                ev = ('1', '0')
+            shift, knum = inst.k(key)
+            if knum is None:
+                raise ValueError('bad key: {}'.format(repr(key)))
+            if shift != shifted:
+                if shift:
+                    yield SHIFT, '1'
+                else:
+                    yield SHIFT, '0'
+                shifted = shift
+            for v in ev:
+                yield (knum, v)
+        if shifted:
+            yield SHIFT, '0'
+
     def keypress(self, *keys, **kwargs):
         """Perform keypress(es).
 
@@ -71,10 +102,10 @@ class ydotool(Context):
         """
         raise NotImplementedError
 
-    def type(self, *text, **kwargs):
+    def type(self, *words, **kwargs):
         """Type the given text.
 
-        text: sequence of words to type.
+        text: sequence of str words to type.
 
         kwargs:
             delay=0: int(msec), delay between words
