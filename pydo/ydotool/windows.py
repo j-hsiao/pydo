@@ -7,9 +7,6 @@ import time
 
 ydotoold = _ydotool.ydotoold
 
-class _LPoint(ctypes.Structure):
-    _fields_ = [('x', ctypes.c_long), ('y', ctypes.c_long)]
-
 class WinMouse(Mouse):
     _WIN_MOVE = 0x0001
     _WIN_LEFTDOWN = 0x0002
@@ -265,14 +262,19 @@ class ydotool(_ydotool.ydotool):
     m = WinMouse
 
     def __init__(self, *args, **kwargs):
-        self.screensize = (
+        self._screensize = None
+        self.refresh_screensize()
+
+    def refresh(self):
+        """Refresh any cached values."""
+        self._screensize = (
             ctypes.windll.user32.GetSystemMetrics(0), # SM_CXSCREEN
             ctypes.windll.user32.GetSystemMetrics(1)) # SM_CYSCREEN
 
     def move(self, x, y, absolute=True):
         """Move the mouse."""
         if absolute:
-            w, h = self.screensize
+            w, h = self._screensize
             # windows absolute coord api takes a value
             # scaling screenspace to 0 - 0xFFFF
             nx = (min(max(0, x), w-1)*0x10000 + 0x8000) // w

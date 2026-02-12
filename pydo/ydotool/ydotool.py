@@ -113,3 +113,7 @@ class ydotool(Context):
         """
         raise NotImplementedError
 
+
+    def refresh(self):
+        """Refresh any cached state."""
+        pass
