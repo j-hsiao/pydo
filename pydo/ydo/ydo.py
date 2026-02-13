@@ -21,12 +21,13 @@ class ydo(object):
             cx, cy = self.pos()
             x += cx
             y += cy
+        sW, sH = self.screensize()
+        tpos = (max(0, min(sW, x)),max(0, min(sH, y)))
         super(ydo, self).move(x, y, True)
         npos = self.pos()
-        tpos = (x,y)
         scale = 1.0
         delta = [0, 0]
-        while npos != tpos
+        while npos != tpos:
             for i in (0,1):
                 d = tpos[i] - npos[i]
                 if d < 0:

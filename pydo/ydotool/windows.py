@@ -263,7 +263,7 @@ class ydotool(_ydotool.ydotool):
 
     def __init__(self, *args, **kwargs):
         self._screensize = None
-        self.refresh_screensize()
+        self.refresh()
 
     def refresh(self):
         """Refresh any cached values."""
