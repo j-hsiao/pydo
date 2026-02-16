@@ -1,3 +1,8 @@
+class Active(object):
+    def __enter__(self):
+        return self
+    def __exit__(self, tp, exc, tb):
+        pass
 
 class ydo(object):
     def lockstate(self, key='Caps_Lock'):
@@ -6,6 +11,10 @@ class ydo(object):
         Caps_Lock, Num_Lock, Scroll_Lock
         """
         raise NotImplementedError
+
+    def activate(self):
+        """Return a context manager to activate this tool."""
+        return Active()
 
     def screensize(self):
         """Return (W,H), size of screen."""
