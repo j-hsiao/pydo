@@ -8,21 +8,24 @@ withdraw -> fullscreen topmost -> deiconify
 
 
 enterring exiting sequences
-update  withdraw    geom    before  windows     wsl     Xvnc        wayland(arch)
-n       n           0       n                                       CCCEM   CLCC
-                                                                    CCECM
-n       n           0       y                                       CCCEM   CLCC
-                                                                    CCECM
-n       y           0       n                                       EM      CLCC
-n       y           0       y                                       CCEM    CLCC
-                                                                    CCCEM
-y       n           0       n                                       CCCEM   CLCC
-y       n           0       y                                       CCECM   CLCC
-                                                                    CCCEM
-y       y           0       n                                       EM      CLCC
-y       y           0       y                                       CCCEM   CLCC
-
-
+update  withdraw    geom    before  windows     wsl         Xvnc        wayland(arch)
+n       n           0       n       CC  CC      CCCEM  CLCC             CCCEM   CLCC
+                                    CCE CCL     CCCEMM                  CCECM
+n       n           0       y       CCE CCL     CCCEM CLCC              CCCEM   CLCC
+                                                CCECM                   CCECM
+n       y           0       n       CE  CCL     CELCECM                 EM      CLCC
+                                                CCECM CLCC
+n       y           0       y       CE  CCL     CCCECM CLCC             CCEM    CLCC
+                                                CCCELCECM               CCCEM
+y       n           0       n       n/a n/a     M     C                 CCCEM   CLCC
+                                                EM    CLCC
+                                                CCCEM
+y       n           0       y       CCE CCL     CCCEM CLCC              CCECM   CLCC
+                                    CC  CC                              CCCEM
+y       y           0       n       MMM L       LCECMMMM                EM      CLCC
+                                                ECM      C
+y       y           0       y       CE  CCL     CCCECM CLCC             CCCEM   CLCC
+                                                CCCELCECM
 """
 import argparse
 import sys
