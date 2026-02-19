@@ -37,15 +37,6 @@ class ydo(_ydo.ydo, ydotool):
         self._reached = tk.BooleanVar(self.tk)
         self._configs = tk.IntVar(self.tk)
 
-        # TODO: 
-        # From observation:
-        #     system  <Motion>    <Configures>    <Configures> on <Enter>
-        #     Windows no          1               1
-        #     wsl     yes         6               5 (sometimes 6)
-        #     X (vnc) no          4               4
-        #     wayland yes*        2(sometimes 3)  2 (sometimes 3)
-        # *sometimes no... not consistent, not sure how to make it consistent.
-        # NOTE: maybe 0x0 is better than 1x1?
         self.tk.createcommand('OnMoveCallback', self._on_move)
         self.tk.createcommand('OnKeyCallback', self._on_key)
         self.tk.bind('<Motion>', 'OnMoveCallback %X %Y %s')
