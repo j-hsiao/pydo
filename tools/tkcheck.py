@@ -35,92 +35,115 @@ r = tk.Tk()
 r.geometry('50x50+5+5')
 r.attributes('-topmost', True)
 state = {
-    'configs': -1,
-    'enters': set(),
-    'exits': set(),
-    'cur': []
+    'cap': False,
+    'enter': set(),
+    'leave': set(),
+    'cur': [],
+    'mode': 'enter',
 }
+
+def epush(ev):
+    """Print an event."""
+    state['cur'].append(ev)
+    print(ev, end='', flush=True)
+
+def coords(x, y, s):
+    """Print coordinates and info.
+
+    x,y: current (root) coordinates
+    s: state bitflags
+    """
+    if args.coord:
+        print('({}, ({},{}), {})'.format(
+            len([_ for _ in state['cur'] if _ == 'C']),
+            x, y, '{:0b}'.format(int(s)),
+            flush=True, file=sys.stderr))
 
 def name(f):
     return f'pyfunc_{f.__name__}'
 def reset(v=0):
     if v >= 0:
-        print('\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
+        print('Enter: ', end='', flush=True)
     else:
-        print('\n<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
-    state['configs'] = v
+        print('Leave: ', end='', flush=True)
+    state['cap'] = True
     state['cur'] = []
 
-def check(*nargs):
+def commit():
+    if state['cap']:
+        state['cap'] = False
+        state[state['mode']].add(''.join(state['cur']))
+        print()
+        if state['mode'] == 'enter':
+            state['mode'] = 'leave'
+        else:
+            state['mode'] = 'enter'
+
+def on_config():
+    if state['cap']:
+        epush('C')
+
+def on_enter(x, y, s):
+    if state['cap']:
+        epush('E')
+        coords(x, y, s)
+
+def on_motion(x, y, s):
+    if state['cap']:
+        epush('M')
+        coords(x, y, s)
+
+def on_leave(x, y, s):
+    if state['cap']:
+        epush('L')
+        coords(x, y, s)
+
+def check():
+    commit()
     if args.withdraw:
-        if nargs:
+        if state['mode'] == 'enter':
+            if r.state() == 'withdrawn':
+                if args.before:
+                    reset()
+                if args.size[0] >= 0:
+                    r.geometry('{}x{}+5+5'.format(*args.size))
+                r.attributes('-fullscreen', True, '-topmost', True)
+                r.deiconify()
+                if args.update:
+                    r.update()
+                if not args.before:
+                    reset()
+            else:
+                r.withdraw()
+                r.call('after', '1000', name(check))
+        else:
+            r.call(
+                'after', '1000',
+                '{}\nwm attributes {} -fullscreen false\nwm geometry {} 50x50+5+5\nwm deiconify {}'.format(
+                    name(commit), r, r, r))
             if args.before:
                 reset()
-            if args.size[0] >= 0:
-                r.geometry('{}x{}+5+5'.format(*args.size))
-            r.attributes('-fullscreen', True, '-topmost', True)
-            r.deiconify()
+            r.withdraw()
             if args.update:
                 r.update()
             if not args.before:
                 reset()
-        else:
-            if state['cur'] and state['enters']:
-                state['exits'].add(''.join(state['cur']))
-            r.withdraw()
-            r.call('after', '1000', '{} 3'.format(name(check)))
     else:
-        if state['cur'] and state['enters']:
-            state['exits'].add(''.join(state['cur']))
         if args.before:
             reset()
-        r.attributes('-fullscreen', True, '-topmost', True)
+        if state['mode'] == 'enter':
+            r.attributes('-fullscreen', True, '-topmost', True)
+        else:
+            r.attributes('-fullscreen', False)
         if args.update:
             r.update()
         if not args.before:
             reset()
 
 
-def on_config():
-    state['cur'].append('C')
-    print('c', end='', flush=True)
-    if state['configs'] >= 0:
-        state['configs'] += 1
-    else:
-        state['configs'] -= 1
 
-def on_enter(x, y, s):
-    if state['configs'] >= 0:
-        state['cur'].append('E')
-        print('e', end='', flush=True)
-        if args.coord:
-            print('({},({},{}),{})'.format(state['configs'], x, y, '{:0b}'.format(int(s))), end='', flush=True, file=sys.stderr)
 
-def on_motion(x, y, s):
-    if state['configs'] >= 0:
-        state['cur'].append('M')
-        print('m', end='', flush=True)
-        if args.coord:
-            print('({},({},{}),{})'.format(state['configs'], x, y, '{:0b}'.format(int(s))), end='', flush=True, file=sys.stderr)
-
-def on_click():
-    if state['cur']:
-        state['enters'].add(''.join(state['cur']))
-    if args.before:
-        reset(-1)
-    r.attributes('-fullscreen', False)
-    if args.update:
-        r.update()
-    if not args.before:
-        reset(-1)
-
-def on_leave():
-    print('L',  end='', flush=True)
-    state['cur'].append('L')
-    if args.coord:
-        print('({})'.format(state['configs']), end='', flush=True, file=sys.stderr)
-
-for item in check, on_config, on_motion, on_enter, on_click, on_leave:
+for item in check, on_config, on_motion, on_enter, on_leave, commit:
     r.createcommand(name(item), item)
 
 p = argparse.ArgumentParser()
@@ -139,15 +162,12 @@ r.bind('<Escape>', f'destroy {r}')
 r.bind('<Enter>', '{} %X %Y %s'.format(name(on_enter)))
 r.bind('<Motion>', '{} %X %Y %s'.format(name(on_motion)))
 r.bind('<Configure>', name(on_config))
-r.bind('<ButtonRelease-1>', name(on_click))
-r.bind('<Leave>', name(on_leave))
+r.bind('<Leave>', '{} %X %Y %s'.format(name(on_leave)))
 
 r.mainloop()
 print()
 
-print('enterring:')
-for item in state['enters']:
+for item in 'enter', 'leave':
     print(item)
-print('exiting:')
-for item in state['exits']:
-    print(item)
+    for x in state[item]:
+        print(x)
