@@ -1,31 +1,53 @@
 """Gather observations on when a fullscren tk window is ready
 
-Update() does not seem to be enough on some systems (usually
-where X is involved on a non-X system...)
+sidenotes:
+    withdrawing/deiconify seems to be the best option in general
+    because the deiconify step ensures the window will end up on top
+    of all the others whereas sometimes, for XWayland(arch or wsl)
+    sometimes, topmost is still below other non-topmost non-xwayland
+    windows.  This also has the benefit of more consistent results.
 
+    wsl case maybe doesn't matter? pydo wouldn't work with it anyways
+    and since wsl is on windows, just use the windows version...
 
-withdraw -> fullscreen topmost -> deiconify
+cases:
+    wubs:
+        withdraw(y/n): withdraw or just exit/enter full screen
+        update(y/n): call update() after changing state.
+        before(y/n): start recording before or after changing state.
+        s(int), size, change geometry before deiconify if applicable.
 
+withdraw(y/n) update(y/n) before(y/n)
+yyy0
+    XWayland
+        enter: CCCEM CCEM
+        leave: LC
+    Xvnc (wayland)
+        enter: CCCCE
+        leave: L
+    wsl
+        enter: CCCECMCM CCCECMCLEM CCCELCECM
+        leave: L
+    win
+        enter: CE
+        leave: L
+In this case, 1 or 4 C before E implies no M
 
-enterring exiting sequences
-update  withdraw    geom    before  windows     wsl         Xvnc        wayland(arch)
-n       n           0       n       CC  CC      CCCEM  CLCC             CCCEM   CLCC
-                                    CCE CCL     CCCEMM                  CCECM
-n       n           0       y       CCE CCL     CCCEM CLCC              CCCEM   CLCC
-                                                CCECM                   CCECM
-n       y           0       n       CE  CCL     CELCECM                 EM      CLCC
-                                                CCECM CLCC
-n       y           0       y       CE  CCL     CCCECM CLCC             CCEM    CLCC
-                                                CCCELCECM               CCCEM
-y       n           0       n       n/a n/a     M     C                 CCCEM   CLCC
-                                                EM    CLCC
-                                                CCCEM
-y       n           0       y       CCE CCL     CCCEM CLCC              CCECM   CLCC
-                                    CC  CC                              CCCEM
-y       y           0       n       MMM L       LCECMMMM                EM      CLCC
-                                                ECM      C
-y       y           0       y       CE  CCL     CCCECM CLCC             CCCEM   CLCC
-                                                CCCELCECM
+yyn0
+    win
+        enter:
+        leave: L
+    wsl
+        enter: LCECM CCECMCLEM CMCLEM
+        leave:
+    Xwayland
+        enter: EM
+        leave:
+    Xvnc (wayland)
+        enter:
+        leave:
+win and Xvnc don't even have Enter registered, (update causes the
+enter to happen before starting recording?)
 """
 import argparse
 import sys
@@ -41,7 +63,6 @@ state = {
     'cur': [],
     'mode': 'enter',
 }
-
 def epush(ev):
     """Print an event."""
     state['cur'].append(ev)
@@ -56,13 +77,13 @@ def coords(x, y, s):
     if args.coord:
         print('({}, ({},{}), {})'.format(
             len([_ for _ in state['cur'] if _ == 'C']),
-            x, y, '{:0b}'.format(int(s)),
-            flush=True, file=sys.stderr))
+            x, y, '{:0b}'.format(int(s))),
+            flush=True, file=sys.stderr, end='')
 
 def name(f):
     return f'pyfunc_{f.__name__}'
-def reset(v=0):
-    if v >= 0:
+def reset():
+    if state['mode'] == 'enter':
         print('Enter: ', end='', flush=True)
     else:
         print('Leave: ', end='', flush=True)
@@ -78,6 +99,19 @@ def commit():
             state['mode'] = 'leave'
         else:
             state['mode'] = 'enter'
+
+def toggle_coord():
+    args.coord = not args.coord
+    print(args.coord)
+def print_seqs():
+    """Commit and print current sequences."""
+    commit()
+    if state['enter'] or state['leave']:
+        print('------------------------------')
+        for item in 'enter', 'leave':
+            print(f'{item}:', *state[item])
+        state['enter'] = set()
+        state['leave'] = set()
 
 def on_config():
     if state['cap']:
@@ -143,7 +177,16 @@ def check():
 
 
 
-for item in check, on_config, on_motion, on_enter, on_leave, commit:
+for item in (
+    check,
+    on_config,
+    on_motion,
+    on_enter,
+    on_leave,
+    commit,
+    print_seqs,
+    toggle_coord,
+):
     r.createcommand(name(item), item)
 
 p = argparse.ArgumentParser()
@@ -163,11 +206,9 @@ r.bind('<Enter>', '{} %X %Y %s'.format(name(on_enter)))
 r.bind('<Motion>', '{} %X %Y %s'.format(name(on_motion)))
 r.bind('<Configure>', name(on_config))
 r.bind('<Leave>', '{} %X %Y %s'.format(name(on_leave)))
+r.bind('<e>', name(commit))
+r.bind('<p>', name(print_seqs))
+r.bind('<c>', name(toggle_coord))
 
 r.mainloop()
-print()
-
-for item in 'enter', 'leave':
-    print(item)
-    for x in state[item]:
-        print(x)
+print_seqs()
