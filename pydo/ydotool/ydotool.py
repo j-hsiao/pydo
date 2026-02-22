@@ -33,6 +33,10 @@ class ydotool(Context):
         """
         raise NotImplementedError
 
+    def move_(self, *args, **kwargs):
+        """Alias for ydotool.move."""
+        return self.move(*args, **kwargs)
+
     def compile_clicks(self, codes):
         """Compile clicks for click().
 
