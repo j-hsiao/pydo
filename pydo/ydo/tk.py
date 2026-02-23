@@ -23,7 +23,7 @@ class ydo(_ydo.ydo, ydotool):
     def __init__(self, *args, **kwargs):
         button = kwargs.pop('button', 'MIDDLE')
         movealg = kwargs.pop('move', tkmove.movel1px)
-        super(TkYdo, self).__init__(*args, **kwargs)
+        super(ydo, self).__init__(*args, **kwargs)
         self._state = 0
         self.tk = tk.Tk()
         self._pos = self.tk.winfo_pointerxy()
