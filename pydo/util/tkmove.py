@@ -49,8 +49,20 @@ def dampmove(tx, ty, absolute):
     pass
 
 
+class MotionToplevel_loop(object):
+    """Use a tk.Toplevel and while loop for accurate mouse motion.
 
-class MotionToplevel(object):
+    This fixes an issue where a small mouse movement (due to pointer
+    acceleration) might not result in an actual mouse motion.  Using
+    callbacks, this sometimes results in no event which means the mouse
+    motion cannot continue.  From observation, events don't need to be
+    handled for winfo pointerxy to have the newest mouse position.
+    """
+    def __init__(self, tool, button='MIDDLE', alg=movel1px):
+        pass
+
+class MotionToplevel_cb(object):
+    """Use a tk.Toplevel with callbacks for accurate mouse motion."""
     def __init__(self, tool, button='MIDDLE', alg=movel1px):
         """Motion Toplevel widget.
 
