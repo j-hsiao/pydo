@@ -5,28 +5,28 @@
     wsl: normal
     Xvnc(wsl): normal
     Xvnc(arch):
-    way(arch):
+    way(arch): normal
 
 2. fullscreen, turn into window and move to corner
     win: motion events are slow if mouse is not inside the window.
     wsl: normal
     Xvnc(wsl): normal
     Xvnc(arch):
-    way(arch):
+    way(arch): normal
 
 3. fullscreen, withdraw, then deiconify on release
     win: motion events are slow, but button release is responsive
     wsl: no response after withdraw
     Xvnc(wsl): no response after withdraw
     Xvnc(arch):
-    way(arch):
+    way(arch): no repsonse
 
 4. fullscreen, turn into window and keep window underneath the cursor.
     win: normal (unless mouse moves too fast and exits window, then it lags)
     wsl: normal (but cursor is on menubar instead of middle of window...)
     Xvnc(wsl): normal (but cursor is on menubar instead of middle of window...)
     Xvnc(arch):
-    way(arch):
+    way(arch): normal
 """
 import tkinter as tk
 r = tk.Tk()

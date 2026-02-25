@@ -25,7 +25,9 @@ NOTE: these observations are difficult to check on wsl because
    application and capture mouse focus.  No need to detect
    whether <Motion> or <Enter> indicates that the fullscreen
    window is ready for the mouse to click into the application for
-   captured mouse focus.
+   captured mouse focus.  After testing, update() after <Enter>
+   isn't good enough to either, it seems <Motion> must be reached
+   before any clicks will be inside
 
    O    windows
    X    wayland(arch)
