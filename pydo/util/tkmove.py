@@ -7,46 +7,49 @@ import sys
 # =================
 # motion algorithms
 # =================
-# TODO? other algorithms: interpolated motion?
-# TODO? guess to reduce the number of steps?
-def movel1px(tx, ty, absolute):
-    """Move 1 pix at a time.
+class MoveAlgorithm(object):
+    def __call__(self, tx, ty, absolute):
+        target = (tx, ty)
+        curpos = yield None
+        if not absolute:
+            target = (target[0] + curpos[0], target[1] + curpos[1])
+        if curpos == target:
+            yield None
+            return
+        delta = self.delta
+        try:
+            while curpos != target:
+                deltas = []
+                for i in range(2):
+                    delta.append(delta(target[i] - curpos[i]))
+                curpos = yield delta
+        finally:
+            yield None
 
-    Yield tuple(click, dx, dy) or None(reached)
-    click: True: if click down
-           None: if no change
-           False: if release
-    dx, dy: relative mouse motion to move towards the target.
-    """
-    C = 5
-    target = (tx, ty)
-    curpos = yield None
-    if not absolute:
-        target = (target[0] + curpos[0], target[1] + curpos[1])
-    if curpos == target:
-        yield None
-        return
-    try:
-        while curpos != target:
-            delta = []
-            for i in range(2):
-                dif = target[i] - curpos[i]
-                if dif > 0:
-                    delta.append(min(C, dif))
-                elif dif < 0:
-                    delta.append(max(-C, dif))
-                else:
-                    delta.append(0)
-            curpos = yield delta
-    finally:
-        yield None
+    def delta(self, dif):
+        raise NotImplementedError
 
-def dampmove(tx, ty, absolute):
-    """Move the required amount dampened by a decreasing multiplier.
+class SteppedMove(object):
+    def __init__(self, step=5):
+        self.step = step
+    def delta(self, dif):
+        if dif > 0:
+            return min(self.step, dif)
+        elif dif < 0:
+            return max(-self.step, dif)
+        else:
+            return 0
 
-    This starts with larger movements but eventually becomes the same as movel1px
-    """
-    pass
+class WeightedMove(object):
+    def __init__(self, weight=0.5):
+        self.weight = weight
+    def delta(self, dif)
+        if dif > 0:
+            return max(1, int(dif*self.weight))
+        elif dif < 0:
+            return min(-1, int(dif*self.weight))
+        else:
+            return 0
 
 
 class MotionToplevel_loop(object):
@@ -58,18 +61,22 @@ class MotionToplevel_loop(object):
     motion cannot continue.  From observation, events don't need to be
     handled for winfo pointerxy to have the newest mouse position.
     """
-    def __init__(self, tool, button='MIDDLE', alg=movel1px):
-        pass
+    def __init__(self, tool, button='MIDDLE', alg=None):
+        if alg is None:
+            alg = WeightedMove()
+        self._alg = alg
 
 class MotionToplevel_cb(object):
     """Use a tk.Toplevel with callbacks for accurate mouse motion."""
-    def __init__(self, tool, button='MIDDLE', alg=movel1px):
+    def __init__(self, tool, button='MIDDLE', alg=None):
         """Motion Toplevel widget.
 
         tool: a ydo tool.
         """
         if isinstance(button, str):
             button = getattr(tool.m, button)
+        if alg is None:
+            alg = WeightedMove()
         self.alg = alg
         self._press = button | tool.m.DOWN
         self._release = button | tool.m.UP
