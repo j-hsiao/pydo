@@ -59,4 +59,42 @@ namespace eval ::tkmove {
 			unset "::tkmove::count_${window}"
 		}
 	}
+
+	# window, movefunc, targetx, targety, [weight [maxval]]
+	proc move_to {window rawmove tx ty args} {
+		if {[llength $args] > 0} {
+			set weight [lindex $args 0]
+		} else {
+			set weight 1
+		}
+		if {[llength $args] > 1} {
+			set maxval [lindex $args 1]
+		} else {
+			set maxval [ \
+				::tcl::mathfunc::max \
+				[winfo screenwidth $window] \
+				[winfo screenheight $window] \
+			]
+		}
+		variable target [list $tx $ty]
+		variable curpos [winfo pointerxy $window]
+		variable delta [list 0 0]
+		while {"$curpos" != "$target"} {
+			set i 0
+			set delta ""
+			foreach {cur} $curpos {tgt} $target {
+				set dif [expr "(${tgt} - ${cur})*$weight"]
+				if {$dif < 0} {
+					lappend delta [expr "int(max(-$maxval, min(-1, $dif)))"]
+				} elseif {$dif > 0} {
+					lappend delta [expr "int(min($maxval, max(1, $dif)))"]
+				} else {
+					lappend delta 0
+				}
+			}
+			eval "$rawmove $delta"
+			set curpos [winfo pointerxy $window]
+			update
+		}
+	}
 }
