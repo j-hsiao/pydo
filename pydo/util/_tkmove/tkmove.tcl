@@ -36,7 +36,7 @@ namespace eval ::tkmove {
 	bind tkmovetag <Enter> "::tkmove::enterred %W"
 	bind tkmovetag <Motion> "::tkmove::moved %W"
 
-	if {"[info sharedlibextension]" == ".dll"} {
+	if {"${tcl_platform(platform)}" == "windows"} {
 		# windows, so just update is fine
 		proc wait_deiconify {window} {
 			wm deiconify $window
