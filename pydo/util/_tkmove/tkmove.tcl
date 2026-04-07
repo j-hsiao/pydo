@@ -36,28 +36,37 @@ namespace eval ::tkmove {
 	bind tkmovetag <Enter> "::tkmove::enterred %W"
 	bind tkmovetag <Motion> "::tkmove::moved %W"
 
-	proc wait_deiconify {window} {
-		# Leave window in topmost fullscreen.
-		set "::tkmove::count_${window}" 0
-		set "::tkmove::done_${window}" 0
-		if {$::tkmove::verbose} {
-			puts "wait_deiconify ${window}"
+	if {"[info sharedlibextension]" == ".dll"} {
+		# windows, so just update is fine
+		proc wait_deiconify {window} {
+			wm deiconify $window
+			update
 		}
-		try {
-			bindtags "${window}" [lappend [bindtags "${window}"] tkmovetag]
-			wm attributes "${window}" -topmost true -fullscreen true
-			wm deiconify "${window}"
-			variable afterev [after 1000 [list set "::tkmove::done_${window}" 0]]
-			vwait "::tkmove::done_${window}"
-			after cancel ${afterev}
+	} else {
+		proc wait_deiconify {window} {
+			# Leave window in topmost fullscreen.
+			set "::tkmove::count_${window}" 0
+			set "::tkmove::done_${window}" 0
 			if {$::tkmove::verbose} {
-				puts ""
+				puts "wait_deiconify ${window}"
 			}
-		} finally {
-			bindtags "${window}" [lrange [bindtags "${window}"] 0 end-1]
-			unset "::tkmove::done_${window}"
-			unset "::tkmove::count_${window}"
+			try {
+				bindtags "${window}" [lappend [bindtags "${window}"] tkmovetag]
+				wm attributes "${window}" -topmost true -fullscreen true
+				wm deiconify "${window}"
+				variable afterev [after 1000 [list set "::tkmove::done_${window}" 0]]
+				vwait "::tkmove::done_${window}"
+				after cancel ${afterev}
+				if {$::tkmove::verbose} {
+					puts ""
+				}
+			} finally {
+				bindtags "${window}" [lrange [bindtags "${window}"] 0 end-1]
+				unset "::tkmove::done_${window}"
+				unset "::tkmove::count_${window}"
+			}
 		}
+
 	}
 
 	# window, movefunc, targetx, targety, [weight [maxval]]
