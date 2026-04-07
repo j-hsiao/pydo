@@ -1,8 +1,20 @@
 """Use tk window to monitor mouse position for accurate movement."""
-import tkinter as tk
+import os
+import sys
 import textwrap
 import time
-import sys
+import tkinter as tk
+
+def load(r):
+    """Load the tkmove package into the given tk root."""
+    try:
+        r.call('package', 'require', 'tkmove')
+    except Exception:
+        r.eval(
+            'set auto_path [linsert $auto_path 0 {{{}}}]'.format(
+                os.path.join(os.path.dirname(__file__), '_tkmove')))
+        r.call('package', 'require', 'tkmove')
+
 
 # =================
 # motion algorithms
@@ -43,7 +55,7 @@ class SteppedMove(object):
 class WeightedMove(object):
     def __init__(self, weight=0.5):
         self.weight = weight
-    def delta(self, dif)
+    def delta(self, dif):
         if dif > 0:
             return max(1, int(dif*self.weight))
         elif dif < 0:
