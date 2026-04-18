@@ -1,5 +1,6 @@
 package provide tkmove 0.1
 package require Tcl 8.6
+package require Tk 8.6
 namespace eval ::tkmove {
 	variable verbose 0
 	proc enterred {window} {
@@ -71,25 +72,28 @@ namespace eval ::tkmove {
 
 	# window, movefunc, targetx, targety, [weight [maxval]]
 	proc move_to {window rawmove tx ty args} {
-		if {[llength $args] > 0} {
-			set weight [lindex $args 0]
-		} else {
-			set weight 1
+		set weight 1
+		set maxval Inf
+		set absmove 1
+		foreach {flag val} $args {
+			if {$flag == "-w"} {
+				set weight $val
+			} elseif {$flag == "-m"} {
+				set maxval $val
+			} elseif {$flag == "-a"} {
+				set absmove $val
+			} else {
+				error "Unrecognized flag $flag"
+			}
 		}
-		if {[llength $args] > 1} {
-			set maxval [lindex $args 1]
-		} else {
-			set maxval [ \
-				::tcl::mathfunc::max \
-				[winfo screenwidth $window] \
-				[winfo screenheight $window] \
-			]
-		}
-		variable target [list $tx $ty]
+		variable target [list \
+			[expr "max(min([winfo screenwidth $window]-1, $tx), 0)"] \
+			[expr "max(min([winfo screenheight $window]-1, $ty), 0)"]]
 		variable curpos [winfo pointerxy $window]
+
 		variable delta [list 0 0]
+		variable steps 0
 		while {"$curpos" != "$target"} {
-			set i 0
 			set delta ""
 			foreach {cur} $curpos {tgt} $target {
 				set dif [expr "(${tgt} - ${cur})*$weight"]
@@ -101,9 +105,15 @@ namespace eval ::tkmove {
 					lappend delta 0
 				}
 			}
+			puts "curpos: $curpos"
+			puts "   idx: $steps"
+			puts "    dx: $delta"
 			eval "$rawmove $delta"
-			set curpos [winfo pointerxy $window]
 			update
+			incr steps
+			# Might be too quick if so many steps
+			if {$steps > 100} {after [expr "$steps/10"]}
+			set curpos [winfo pointerxy $window]
 		}
 	}
 }
